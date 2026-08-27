@@ -11,23 +11,23 @@
   --font-display: 'Space Grotesk', sans-serif;
   --font-serif: 'Cinzel', serif;
 
-  /* Primary Colors */
-  --color-primary-50: #f0f9ff;
-  --color-primary-100: #e0f2fe;
-  --color-primary-200: #bae6fd;
-  --color-primary-300: #7dd3fc;
-  --color-primary-400: #38bdf8;
-  --color-primary-500: #0ea5e9;
-  --color-primary-600: #0284c7;
-  --color-primary-700: #0369a1;
-  --color-primary-800: #075985;
-  --color-primary-900: #0c4a6e;
+  /* Primary Colors — ARK ACADEMY Yellow */
+  --color-primary-50: #fffbe6;
+  --color-primary-100: #fff5bf;
+  --color-primary-200: #ffec80;
+  --color-primary-300: #ffe14d;
+  --color-primary-400: #ffdb1a;
+  --color-primary-500: #ffd700;
+  --color-primary-600: #e6c200;
+  --color-primary-700: #bfa100;
+  --color-primary-800: #8c7600;
+  --color-primary-900: #594b00;
 
-  /* Dark Theme Colors */
-  --color-dark-bg: #020617;
-  --color-dark-card: #0f172a;
-  --color-dark-border: #1e293b;
-  --color-dark-hover: #334155;
+  /* Dark Theme Colors — ARK ACADEMY Black */
+  --color-dark-bg: #000000;
+  --color-dark-card: #111111;
+  --color-dark-border: #2a2a2a;
+  --color-dark-hover: #1a1a1a;
 
   /* shadcn semantic tokens */
   --color-background: var(--color-bg);
@@ -37,7 +37,7 @@
   --color-popover: var(--color-surface);
   --color-popover-foreground: var(--color-text-primary);
   --color-primary: var(--color-primary-500);
-  --color-primary-foreground: #ffffff;
+  --color-primary-foreground: #000000;
   --color-muted-foreground: var(--color-text-secondary);
   --color-accent: var(--color-muted);
   --color-accent-foreground: var(--color-text-primary);
@@ -167,12 +167,12 @@ html, body {
 }
 
 .dark {
-  /* Dark Mode - Deep Slate (OKLCH) */
-  --color-bg: oklch(11% 0.025 260);
-  --color-surface: oklch(15% 0.02 260);
-  --color-muted: oklch(22% 0.015 260);
-  --color-border: oklch(26% 0.012 260);
-  --color-border-subtle: oklch(22% 0.01 260 / 0.6);
+  /* Dark Mode - ARK ACADEMY Industrial Black */
+  --color-bg: #000000;
+  --color-surface: #111111;
+  --color-muted: #1a1a1a;
+  --color-border: #2a2a2a;
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
 
   /* Status Colors - Dark Mode */
   --color-success: oklch(70% 0.17 145);
@@ -200,23 +200,23 @@ html, body {
   --color-orange-text: oklch(75% 0.17 55);
 
   /* Text Colors - Dark Mode */
-  --color-text-primary: oklch(98% 0.002 260);
-  --color-text-secondary: oklch(83% 0.015 260);
-  --color-text-muted: oklch(72% 0.02 260);
-  --color-text-subtle: oklch(62% 0.025 260);
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #cccccc;
+  --color-text-muted: #a3a3a3;
+  --color-text-subtle: #8a8a8a;
 
   /* Glass effect - Dark */
-  --glass-bg: oklch(15% 0.02 260 / 0.75);
-  --glass-border: oklch(100% 0 0 / 0.05);
+  --glass-bg: rgba(17, 17, 17, 0.8);
+  --glass-border: rgba(255, 215, 0, 0.08);
   --glass-blur: 12px;
 
   /* Dots background */
-  --dots-color: oklch(22% 0.012 260);
+  --dots-color: #1a1a1a;
 
   /* Chart Colors */
-  --chart-text: #94a3b8;
-  --chart-grid: rgba(255, 255, 255, 0.1);
-  --chart-tooltip-bg: #1e293b;
+  --chart-text: #cccccc;
+  --chart-grid: rgba(255, 255, 255, 0.08);
+  --chart-tooltip-bg: #111111;
   --chart-tooltip-border: rgba(255, 255, 255, 0.1);
   --chart-tooltip-text: #f8fafc;
 
@@ -235,10 +235,10 @@ html, body {
   --channel-sms-bg: oklch(70% 0.15 55 / 0.15);
 
   /* Message Bubbles - Dark */
-  --bubble-inbound-bg: oklch(22% 0.015 260);
-  --bubble-inbound-border: oklch(28% 0.012 260);
-  --bubble-outbound-bg: oklch(50% 0.16 240);
-  --bubble-outbound-text: oklch(100% 0 0);
+  --bubble-inbound-bg: #1a1a1a;
+  --bubble-inbound-border: #2a2a2a;
+  --bubble-outbound-bg: #ffd700;
+  --bubble-outbound-text: #000000;
 
   /* Message Status Colors (same, slightly adjusted) */
   --msg-status-pending: oklch(60% 0.02 260);
@@ -248,9 +248,9 @@ html, body {
   --msg-status-failed: oklch(68% 0.24 25);
 
   /* Conversation List */
-  --conversation-hover: oklch(18% 0.015 260);
-  --conversation-active: oklch(22% 0.02 240);
-  --conversation-unread-dot: oklch(60% 0.18 240);
+  --conversation-hover: #1a1a1a;
+  --conversation-active: #262200;
+  --conversation-unread-dot: #ffd700;
 
   /* Window Expiry */
   --window-expiring: oklch(75% 0.15 55);
@@ -475,4 +475,13 @@ body {
 
 .cv-card-lg {
   contain-intrinsic-size: auto 200px; /* Cards grandes (com preview) */
+}
+/* ========================================
+ * ARK ACADEMY — contraste: texto preto sobre amarelo
+ * (botoes/CTAs que usavam text-white sobre o azul antigo)
+ * ======================================== */
+.bg-primary-500, .bg-primary-600, .bg-primary-700,
+.dark .bg-primary-500, .dark .bg-primary-600, .dark .bg-primary-700,
+[class*="from-primary-4"], [class*="from-primary-5"], [class*="from-primary-6"] {
+  color: #000000 !important;
 }
