@@ -7,7 +7,7 @@ import { InstallBanner } from '@/components/pwa/InstallBanner'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'NossoCRM',
+  title: 'ARK ACADEMY',
   description: 'CRM Inteligente para Gestão de Vendas',
 }
 
