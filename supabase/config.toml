@@ -100,3 +100,7 @@ verify_jwt = false
 # (assinatura HMAC / x-api-key) dentro da função.
 [functions.messaging-webhook-zernio]
 verify_jwt = false
+
+# Chamada pelo pg_cron (pg_net) — autenticação por x-dispatch-secret na função.
+[functions.scheduled-messages-dispatch]
+verify_jwt = false

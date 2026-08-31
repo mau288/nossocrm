@@ -26,6 +26,8 @@ import { cn } from '@/lib/utils';
 import { sanitizeUrl } from '@/lib/utils/sanitize';
 import type { ConversationView } from '@/lib/messaging/types';
 import { ChannelIndicator } from './ChannelIndicator';
+import { ContactTagsSection } from './ContactTagsSection';
+import { ScheduledMessagesSection } from './ScheduledMessagesSection';
 import { WindowExpiryBadge } from './WindowExpiryBadge';
 import { ContactPanelSkeleton } from './skeletons/ContactPanelSkeleton';
 import { useUpdateContact } from '@/lib/query/hooks/useContactsQuery';
@@ -375,16 +377,26 @@ export const ContactPanel = memo(function ContactPanel({
           />
         </Section>
 
-        {/* Tags/Labels placeholder */}
-        <Section title="Tags" defaultOpen={false}>
-          <div className="flex flex-wrap gap-1.5">
-            <span className="px-2 py-0.5 text-xs bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-400 rounded-full">
-              Nenhuma tag
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-            Tags serão implementadas em uma versão futura.
-          </p>
+        {/* Tags do lead — nome livre, acumulam como rastro dos funis */}
+        <Section title="Tags" defaultOpen={true}>
+          {hasLinkedContact && contactId ? (
+            <ContactTagsSection contactId={contactId} />
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Vincule um contato para usar tags.
+            </p>
+          )}
+        </Section>
+
+        {/* Follow-up programado */}
+        <Section title="Follow-up programado" defaultOpen={false}>
+          {conversation ? (
+            <ScheduledMessagesSection
+              conversationId={conversation.id}
+              channelId={conversation.channelId}
+              contactId={contactId}
+            />
+          ) : null}
         </Section>
       </div>
     </div>
