@@ -81,6 +81,8 @@ export interface DbContact {
   owner_id: string | null;
   /** Quando true, o agente de IA não responde a este contato. */
   ai_paused: boolean;
+  /** Tags acumulativas do lead (rastro de funis/processos). */
+  tags: string[] | null;
 }
 
 /**
@@ -134,6 +136,7 @@ const transformContact = (db: DbContact): Contact => ({
   createdAt: db.created_at,
   updatedAt: db.updated_at,
   aiPaused: db.ai_paused ?? false,
+  tags: db.tags ?? [],
 });
 
 /**
@@ -181,6 +184,7 @@ const transformContactToDb = (contact: Partial<Contact>): Partial<DbContact> => 
   if (contact.lastPurchaseDate !== undefined) db.last_purchase_date = contact.lastPurchaseDate || null;
   if (contact.totalValue !== undefined) db.total_value = contact.totalValue;
   if (contact.aiPaused !== undefined) db.ai_paused = contact.aiPaused;
+  if (contact.tags !== undefined) db.tags = contact.tags;
 
   return db;
 };

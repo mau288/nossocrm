@@ -174,6 +174,12 @@ export interface Contact {
 
   /** Quando true, o agente de IA não responde a este contato em nenhum canal. */
   aiPaused?: boolean;
+
+  /**
+   * Tags acumulativas do lead (nome livre). Servem de rastro dos processos/
+   * funis pelos quais ele passou e de filtro nas listagens.
+   */
+  tags?: string[];
 }
 
 // ITEM 3: Produtos e Serviços
