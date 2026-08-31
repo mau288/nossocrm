@@ -275,7 +275,7 @@ function normalizeMessageEvent(root: Obj): NormalizedMessage | null {
       : readText(sender, ["username"]) ?? readText(conversation, ["participantUsername"]);
   const senderAvatar =
     readText(sender, ["avatar", "avatarUrl", "profilePic"]) ??
-    readText(conversation, ["participantAvatar"]);
+    readText(conversation, ["participantPicture", "participantAvatar"]);
 
   const attachments: { type: string | null; url: string }[] = [];
   const rawAttachments = Array.isArray(message["attachments"]) ? (message["attachments"] as unknown[]) : [];
@@ -524,9 +524,13 @@ async function ensureConversation(
     avatar: string | null;
   }
 ): Promise<{ conversationId: string; contactId: string | null; created: boolean }> {
+  const contactName =
+    params.displayName ?? (params.username ? `@${params.username.replace(/^@/, "")}` : null) ?? "Contato do Instagram";
+  const hasRealName = contactName !== "Contato do Instagram";
+
   const { data: existingConv, error: convFindErr } = await supabase
     .from("messaging_conversations")
-    .select("id, contact_id")
+    .select("id, contact_id, external_contact_name")
     .eq("channel_id", channel.id)
     .eq("external_contact_id", params.conversationExternalId)
     .maybeSingle();
@@ -534,11 +538,30 @@ async function ensureConversation(
   if (convFindErr) throw convFindErr;
 
   if (existingConv) {
+    // conversation.started chega com participantName vazio e cria o registro
+    // genérico; quando um evento posterior traz o nome real, promovemos.
+    if (hasRealName && existingConv.external_contact_name === "Contato do Instagram") {
+      await supabase
+        .from("messaging_conversations")
+        .update({
+          external_contact_name: contactName,
+          ...(params.avatar ? { external_contact_avatar: params.avatar } : {}),
+        })
+        .eq("id", existingConv.id);
+
+      if (existingConv.contact_id) {
+        await supabase
+          .from("contacts")
+          .update({
+            name: contactName,
+            ...(params.avatar ? { avatar: params.avatar } : {}),
+          })
+          .eq("id", existingConv.contact_id)
+          .eq("name", "Contato do Instagram");
+      }
+    }
     return { conversationId: existingConv.id, contactId: existingConv.contact_id, created: false };
   }
-
-  const contactName =
-    params.displayName ?? (params.username ? `@${params.username.replace(/^@/, "")}` : null) ?? "Contato do Instagram";
 
   // Instagram has no phone: dedup by name+source would be unsafe, so each new
   // DM thread creates its own contact (merge later via the dedup tools).
@@ -703,10 +726,21 @@ async function handleConversationStarted(
   const conversationExternalId = readText(conversation, ["id"]);
   if (!conversationExternalId) return;
 
+  // conversation.started frequentemente chega ANTES da Zernio resolver o
+  // perfil (participantName vazio). Criar aqui geraria o contato genérico
+  // "Contato do Instagram" — deixamos o message.received (que traz o nome)
+  // criar a conversa.
+  const displayName = readText(conversation, ["participantName"]);
+  const username = readText(conversation, ["participantUsername"]);
+  if (!displayName && !username) {
+    console.log("[Zernio] conversation.started sem participante resolvido — ignorando (message.received cria)");
+    return;
+  }
+
   await ensureConversation(supabase, channel, {
     conversationExternalId,
-    displayName: readText(conversation, ["participantName"]),
-    username: readText(conversation, ["participantUsername"]),
-    avatar: readText(conversation, ["participantAvatar"]),
+    displayName,
+    username,
+    avatar: readText(conversation, ["participantAvatar", "participantPicture"]),
   });
 }
