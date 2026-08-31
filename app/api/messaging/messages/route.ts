@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createStaticAdminClient } from '@/lib/supabase/staticAdminClient';
 // Import from main module to ensure providers are registered
@@ -120,7 +120,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fire-and-forget: send to provider without blocking the response.
+    // Fire-and-forget via after(): runs once the response is flushed, but the
+    // runtime keeps the invocation alive until it finishes — a bare
+    // `void (async () => ...)()` is frozen mid-flight on Vercel and the
+    // message stays stuck in "queued" forever.
     // Uses createStaticAdminClient (service role, no request context needed)
     // because the standard createClient depends on next/headers which is
     // unavailable after the response has been sent.
@@ -128,7 +131,7 @@ export async function POST(request: NextRequest) {
     const messageId = dbMessage.id;
     const channelId = channel.id;
 
-    void (async () => {
+    after(async () => {
       const supabaseAdmin = createStaticAdminClient();
       try {
         await supabaseAdmin
@@ -190,7 +193,7 @@ export async function POST(request: NextRequest) {
       } catch (err: unknown) {
         console.error('[messaging/messages] background send failed:', err instanceof Error ? err.message : err, err instanceof Error ? err.stack : '');
       }
-    })();
+    });
 
     // Respond immediately with pending message — UI updates via realtime
     return NextResponse.json(transformMessage(dbMessage as DbMessagingMessage));

@@ -8,3 +8,5 @@
 
 export { MetaInstagramProvider } from './meta.provider';
 export type { MetaInstagramCredentials } from './meta.provider';
+export { ZernioInstagramProvider } from './zernio.provider';
+export type { ZernioCredentials } from './zernio.provider';
