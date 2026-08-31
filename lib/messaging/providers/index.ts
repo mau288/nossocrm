@@ -23,6 +23,8 @@ export type {
 // Instagram providers
 export { MetaInstagramProvider } from './instagram';
 export type { MetaInstagramCredentials } from './instagram';
+export { ZernioInstagramProvider } from './instagram';
+export type { ZernioCredentials } from './instagram';
 
 // Email providers
 export { ResendEmailProvider } from './email';
@@ -34,7 +36,7 @@ export type { ResendCredentials, ResendWebhookPayload } from './email';
 
 import { registerProvider } from '../channel-factory';
 import { ZApiWhatsAppProvider, MetaCloudWhatsAppProvider, EvolutionWhatsAppProvider } from './whatsapp';
-import { MetaInstagramProvider } from './instagram';
+import { MetaInstagramProvider, ZernioInstagramProvider } from './instagram';
 import { ResendEmailProvider } from './email';
 
 // Register Z-API provider
@@ -172,6 +174,50 @@ registerProvider({
     },
   ],
   features: ['media', 'read_receipts'],
+});
+
+// Register Zernio Instagram provider
+registerProvider({
+  channelType: 'instagram',
+  providerName: 'zernio',
+  constructor: ZernioInstagramProvider,
+  displayName: 'Instagram (Zernio)',
+  description: 'Instagram DM via Zernio — conecte o perfil na Zernio e cole a chave da API',
+  configFields: [
+    {
+      key: 'apiKey',
+      label: 'Zernio API Key',
+      type: 'password',
+      required: true,
+      placeholder: 'Chave da API da Zernio',
+      helpText: 'Encontre em zernio.com > Configurações > API',
+    },
+    {
+      key: 'accountId',
+      label: 'Account ID (conta Instagram na Zernio)',
+      type: 'text',
+      required: true,
+      placeholder: 'ID da conta conectada na Zernio',
+      helpText: 'Liste as contas em GET /accounts da Zernio ou copie do painel',
+    },
+    {
+      key: 'username',
+      label: '@usuário (opcional)',
+      type: 'text',
+      required: false,
+      placeholder: '@perfil',
+      helpText: 'Apenas informativo, aparece no card do canal',
+    },
+    {
+      key: 'webhookSecret',
+      label: 'Webhook Secret (opcional)',
+      type: 'password',
+      required: false,
+      placeholder: 'Segredo devolvido ao registrar o webhook',
+      helpText: 'Usado para validar a assinatura HMAC dos eventos da Zernio',
+    },
+  ],
+  features: [],
 });
 
 // Register Resend Email provider

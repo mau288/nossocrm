@@ -95,3 +95,8 @@ enabled = false
 # portanto desabilitamos a verificação de JWT.
 [functions.webhook-in]
 verify_jwt = false
+
+# Zernio (Instagram) chama este webhook de fora — autenticação própria
+# (assinatura HMAC / x-api-key) dentro da função.
+[functions.messaging-webhook-zernio]
+verify_jwt = false
