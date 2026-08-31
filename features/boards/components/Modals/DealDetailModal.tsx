@@ -17,7 +17,10 @@ import { useUIState } from '@/store/uiState';
 import { useActiveProducts } from '@/lib/query/hooks/useProductsQuery';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { ConfirmDialog as ConfirmModal } from '@/components/ui/confirm-dialog';
+// Radix AlertDialog (ConfirmDialog) fica sem eventos quando aninhado no Modal legado
+// deste detalhe (portal + delegacao React nao se falam aqui) — o ConfirmModal
+// in-tree funciona; ver historico do bug 'Excluir nao responde'.
+import ConfirmModal from '@/components/ConfirmModal';
 import { LossReasonModal } from '@/components/ui/LossReasonModal';
 import { useMoveDealSimple } from '@/lib/query/hooks';
 import { DEALS_VIEW_KEY } from '@/lib/query';
