@@ -18,6 +18,7 @@ import {
   GitMerge,
   BotOff,
   Bot,
+  KanbanSquare,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -36,6 +37,8 @@ interface ContactPanelProps {
   onLinkContact?: () => void;
   onViewContact?: (contactId: string) => void;
   onViewDeals?: (contactId: string) => void;
+  /** Abre o modal "Enviar pro Funil" — criação MANUAL de negócio a partir da conversa. */
+  onSendToFunnel?: () => void;
   hasDuplicate?: boolean;
   onResolveDuplicate?: () => void;
   className?: string;
@@ -98,6 +101,7 @@ export const ContactPanel = memo(function ContactPanel({
   onLinkContact,
   onViewContact,
   onViewDeals,
+  onSendToFunnel,
   hasDuplicate,
   onResolveDuplicate,
   className,
@@ -275,6 +279,21 @@ export const ContactPanel = memo(function ContactPanel({
             </button>
           )}
         </div>
+
+        {/* Enviar pro Funil — criação manual de negócio a partir da conversa */}
+        {hasLinkedContact && onSendToFunnel && (
+          <button
+            type="button"
+            onClick={onSendToFunnel}
+            className={cn(
+              'w-full mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold',
+              'bg-primary-600 text-white hover:bg-primary-700 transition-colors'
+            )}
+          >
+            <KanbanSquare className="w-3.5 h-3.5" />
+            Enviar pro Funil
+          </button>
+        )}
       </div>
 
       {/* Scrollable content */}
