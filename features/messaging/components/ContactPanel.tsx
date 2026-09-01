@@ -28,6 +28,7 @@ import type { ConversationView } from '@/lib/messaging/types';
 import { ChannelIndicator } from './ChannelIndicator';
 import { ContactTagsSection } from './ContactTagsSection';
 import { ScheduledMessagesSection } from './ScheduledMessagesSection';
+import { ContactPhoneLink } from './ContactPhoneLink';
 import { WindowExpiryBadge } from './WindowExpiryBadge';
 import { ContactPanelSkeleton } from './skeletons/ContactPanelSkeleton';
 import { useUpdateContact } from '@/lib/query/hooks/useContactsQuery';
@@ -304,6 +305,11 @@ export const ContactPanel = memo(function ContactPanel({
         <Section title="Informações">
           {contactPhone && (
             <InfoRow icon={Phone} label="Telefone" value={contactPhone} />
+          )}
+          {/* Lead sem telefone (ex.: Instagram): associar o número dá match/merge
+              com o cadastro do WhatsApp da mesma pessoa. */}
+          {hasLinkedContact && !contactPhone && contactId && (
+            <ContactPhoneLink contactId={contactId} contactName={displayName} />
           )}
           {contactEmail && (
             <InfoRow icon={Mail} label="Email" value={contactEmail} />
