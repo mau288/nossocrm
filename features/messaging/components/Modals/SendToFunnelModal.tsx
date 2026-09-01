@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { X, Plus } from 'lucide-react';
 import { useCreateDeal } from '@/lib/query/hooks/useDealsQuery';
 import { useBoards } from '@/lib/query/hooks/useBoardsQuery';
 import { Deal } from '@/types';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/context/ToastContext';
+import { usePersistedState } from '@/hooks/usePersistedState';
+import { TAG_SUGGESTIONS_DEFAULT } from '@/lib/crm/tag-suggestions';
 
 interface SendToFunnelModalProps {
   isOpen: boolean;
@@ -39,6 +42,40 @@ export const SendToFunnelModal: React.FC<SendToFunnelModalProps> = ({
   const [title, setTitle] = useState<string>('');
   const [value, setValue] = useState<string>('');
 
+  // Tags do negócio: é por elas que os funis da Visão Geral são filtrados
+  // (ex.: produto:comunidade, edicao:lancamento-pago).
+  const [dealTags, setDealTags] = useState<string[]>([]);
+  const [tagQuery, setTagQuery] = useState('');
+  const [tagCatalog, setTagCatalog] = usePersistedState<string[]>('crm_tags', []);
+
+  const normalizeTag = (v: string) => v.trim().replace(/\s+/g, ' ');
+
+  const tagOptions = useMemo(() => {
+    const all = [...new Set([...TAG_SUGGESTIONS_DEFAULT, ...tagCatalog])];
+    const q = normalizeTag(tagQuery).toLowerCase();
+    if (!q) return [];
+    return all.filter((t) => t.toLowerCase().includes(q) && !dealTags.includes(t)).slice(0, 6);
+  }, [tagQuery, tagCatalog, dealTags]);
+
+  const tagIsNew =
+    normalizeTag(tagQuery).length > 0 &&
+    ![...TAG_SUGGESTIONS_DEFAULT, ...tagCatalog].some(
+      (t) => t.toLowerCase() === normalizeTag(tagQuery).toLowerCase()
+    );
+
+  const addTag = (raw: string) => {
+    const tag = normalizeTag(raw);
+    if (!tag || dealTags.includes(tag)) {
+      setTagQuery('');
+      return;
+    }
+    setDealTags([...dealTags, tag]);
+    if (!tagCatalog.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+      setTagCatalog([...tagCatalog, tag]);
+    }
+    setTagQuery('');
+  };
+
   const selectedBoard = useMemo(
     () => boards.find((b) => b.id === boardId) ?? null,
     [boards, boardId]
@@ -53,6 +90,8 @@ export const SendToFunnelModal: React.FC<SendToFunnelModalProps> = ({
     setStageId(defaultBoard?.stages?.[0]?.id ?? '');
     setTitle(contactName || 'Novo negócio');
     setValue('');
+    setDealTags([]);
+    setTagQuery('');
   }, [isOpen, boards, contactName]);
 
   // Trocou de board → volta para a primeira etapa dele
@@ -83,7 +122,7 @@ export const SendToFunnelModal: React.FC<SendToFunnelModalProps> = ({
       updatedAt: new Date().toISOString(),
       probability: 10,
       priority: 'medium',
-      tags: channelName ? ['Conversa', channelName] : ['Conversa'],
+      tags: [...(channelName ? ['Conversa', channelName] : ['Conversa']), ...dealTags],
       owner: { name: 'Eu', avatar: '' },
       customFields: conversationId ? { conversation_id: conversationId } : {},
       isWon: false,
@@ -159,6 +198,71 @@ export const SendToFunnelModal: React.FC<SendToFunnelModalProps> = ({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Ex: Curso de Instrumentação - Fabricio"
           />
+        </div>
+
+        <div>
+          <label className={labelClass} htmlFor="funnel-tags">
+            Tags do negócio — usadas para filtrar os funis
+          </label>
+          {dealTags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {dealTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary-500/15 text-primary-600 dark:text-primary-400 border border-primary-500/30"
+                >
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => setDealTags(dealTags.filter((t) => t !== tag))}
+                    className="opacity-60 hover:opacity-100"
+                    aria-label={`Remover ${tag}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="relative">
+            <input
+              id="funnel-tags"
+              className={inputClass}
+              value={tagQuery}
+              onChange={(e) => setTagQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addTag(tagOptions[0] && !tagIsNew ? tagOptions[0] : tagQuery);
+                }
+              }}
+              placeholder="Ex: produto:comunidade, edicao:lancamento-pago…"
+            />
+            {(tagOptions.length > 0 || tagIsNew) && (
+              <div className="absolute z-30 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg shadow-lg overflow-hidden">
+                {tagOptions.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => addTag(t)}
+                    className="w-full text-left px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5"
+                  >
+                    {t}
+                  </button>
+                ))}
+                {tagIsNew && (
+                  <button
+                    type="button"
+                    onClick={() => addTag(tagQuery)}
+                    className="w-full text-left px-2.5 py-1.5 text-xs font-medium text-primary-600 dark:text-primary-400 hover:bg-slate-100 dark:hover:bg-white/5 inline-flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Criar tag &quot;{normalizeTag(tagQuery)}&quot;
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div>

@@ -9,6 +9,7 @@ import { useBoards } from '@/lib/query/hooks/useBoardsQuery';
 import { useToast } from '@/context/ToastContext';
 import { TrendingUp, TrendingDown, Users, DollarSign, Target, Clock, MoreVertical, AlertTriangle } from 'lucide-react';
 import { StatCard } from './components/StatCard';
+import { FunnelOverview } from './components/FunnelOverview';
 import { ActivityFeedItem } from './components/ActivityFeedItem';
 import { PipelineAlertsModal } from './components/PipelineAlertsModal';
 import { AIMetricsSection } from './components/AIMetricsSection';
@@ -196,6 +197,11 @@ const DashboardPage: React.FC = () => {
           />
         </div>
       )}
+
+      {/* Funis por etapa — visão gráfica dos boards, filtrável por tag */}
+      <div className="shrink-0">
+        <FunnelOverview />
+      </div>
 
       {/* Wallet Health Section - Compact */}
       <div className="space-y-3 shrink-0">
