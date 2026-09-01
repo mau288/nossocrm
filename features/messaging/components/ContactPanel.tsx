@@ -19,6 +19,7 @@ import {
   BotOff,
   Bot,
   KanbanSquare,
+  Send,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -42,6 +43,8 @@ interface ContactPanelProps {
   onViewDeals?: (contactId: string) => void;
   /** Abre o modal "Enviar pro Funil" — criação MANUAL de negócio a partir da conversa. */
   onSendToFunnel?: () => void;
+  /** Abre o modal "Puxar pro WhatsApp" (handoff do Instagram). */
+  onPullToWhatsApp?: () => void;
   hasDuplicate?: boolean;
   onResolveDuplicate?: () => void;
   className?: string;
@@ -105,6 +108,7 @@ export const ContactPanel = memo(function ContactPanel({
   onViewContact,
   onViewDeals,
   onSendToFunnel,
+  onPullToWhatsApp,
   hasDuplicate,
   onResolveDuplicate,
   className,
@@ -309,7 +313,25 @@ export const ContactPanel = memo(function ContactPanel({
           {/* Lead sem telefone (ex.: Instagram): associar o número dá match/merge
               com o cadastro do WhatsApp da mesma pessoa. */}
           {hasLinkedContact && !contactPhone && contactId && (
-            <ContactPhoneLink contactId={contactId} contactName={displayName} />
+            <>
+              {/* Instagram (e afins): o lead passou o número → puxa pro WhatsApp
+                  já disparando a primeira mensagem pelo chip. */}
+              {channelType !== 'whatsapp' && onPullToWhatsApp && (
+                <button
+                  type="button"
+                  onClick={onPullToWhatsApp}
+                  className={cn(
+                    'w-full mt-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5',
+                    'rounded-lg text-xs font-semibold bg-emerald-600 text-white',
+                    'hover:bg-emerald-700 transition-colors'
+                  )}
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  Puxar pro WhatsApp
+                </button>
+              )}
+              <ContactPhoneLink contactId={contactId} contactName={displayName} />
+            </>
           )}
           {contactEmail && (
             <InfoRow icon={Mail} label="Email" value={contactEmail} />

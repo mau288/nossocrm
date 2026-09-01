@@ -14,6 +14,7 @@ import { MessageInput } from './components/MessageInput';
 import { ContactPanel } from './components/ContactPanel';
 import { ContactLinkModal } from './components/Modals/ContactLinkModal';
 import { SendToFunnelModal } from './components/Modals/SendToFunnelModal';
+import { PullToWhatsAppModal } from './components/Modals/PullToWhatsAppModal';
 import { ChannelIndicator } from './components/ChannelIndicator';
 import { WindowExpiryBadge } from './components/WindowExpiryBadge';
 import { MessageSearchBar } from './components/MessageSearchBar';
@@ -57,6 +58,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   );
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [isFunnelModalOpen, setIsFunnelModalOpen] = useState(false);
+  const [isHandoffModalOpen, setIsHandoffModalOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<import('@/lib/messaging/types').MessagingMessage | null>(null);
@@ -340,8 +342,25 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
           onViewContact={handleViewContact}
           onViewDeals={handleViewDeals}
           onSendToFunnel={() => setIsFunnelModalOpen(true)}
+          onPullToWhatsApp={() => setIsHandoffModalOpen(true)}
         />
       </div>
+
+      {/* Puxar pro WhatsApp: handoff do Instagram com disparo imediato */}
+      {selectedConversation?.contactId && (
+        <PullToWhatsAppModal
+          isOpen={isHandoffModalOpen}
+          onClose={() => setIsHandoffModalOpen(false)}
+          contactId={selectedConversation.contactId}
+          contactName={
+            selectedConversation.contactName ||
+            selectedConversation.externalContactName ||
+            'Contato'
+          }
+          originTag={`origem:${selectedConversation.channelType}`}
+          onDone={(conversationId) => router.push(`/messaging?id=${conversationId}`)}
+        />
+      )}
 
       {/* Enviar pro Funil Modal */}
       {selectedConversation?.contactId && (
