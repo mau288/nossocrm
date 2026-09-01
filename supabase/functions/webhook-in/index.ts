@@ -53,7 +53,30 @@ type LeadPayload = {
   title?: string;
   value?: number | string;
   company?: string;
+
+  /**
+   * Tags do lead — acumulam no contato (rastro dos funis por onde ele passou)
+   * e vão também para o negócio criado. Aceita array ou string separada por
+   * vírgula: ["funil:lp-pago-set26"] ou "funil:lp-pago-set26, comprou:guia-clp".
+   */
+  tags?: string[] | string;
 };
+
+/** Normaliza `tags` (array ou CSV) em lista limpa e sem repetição. */
+function parseTags(raw: unknown): string[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.split(",")
+      : [];
+  const out: string[] = [];
+  for (const item of list) {
+    if (typeof item !== "string") continue;
+    const tag = item.trim().replace(/\s+/g, " ");
+    if (tag && !out.includes(tag)) out.push(tag);
+  }
+  return out;
+}
 
 const corsHeaders = {
   // NOTE: Para chamadas a partir do browser (UI "Enviar teste") precisamos de CORS.
@@ -205,6 +228,7 @@ Deno.serve(async (req) => {
   const companyName = getCompanyName(payload);
   const dealTitleFromPayload = getDealTitle(payload);
   const dealValue = getDealValue(payload);
+  const leadTags = parseTags(payload.tags);
 
   // 1) Auditoria/dedupe (idempotente quando external_event_id existe)
   if (externalEventId) {
@@ -299,7 +323,7 @@ Deno.serve(async (req) => {
 
     const { data: existingContacts, error: findErr } = await supabase
       .from("contacts")
-      .select("id, name, email, phone, organization_id")
+      .select("id, name, email, phone, organization_id, tags")
       .eq("organization_id", source.organization_id)
       .or(filters.join(","))
       .limit(1);
@@ -318,6 +342,13 @@ Deno.serve(async (req) => {
       if (clientCompanyId) updates.client_company_id = clientCompanyId;
       if (payload.notes) updates.notes = payload.notes;
       if (payload.source) updates.source = payload.source;
+      // Tags acumulam: o rastro de funis do lead nunca é sobrescrito.
+      if (leadTags.length > 0) {
+        const current: string[] = Array.isArray(existing.tags) ? existing.tags : [];
+        const merged = [...current];
+        for (const tag of leadTags) if (!merged.includes(tag)) merged.push(tag);
+        if (merged.length !== current.length) updates.tags = merged;
+      }
 
       if (Object.keys(updates).length > 0) {
         const { error: updErr } = await supabase
@@ -334,6 +365,7 @@ Deno.serve(async (req) => {
         .from("contacts")
         .insert({
           organization_id: source.organization_id,
+          ...(leadTags.length > 0 ? { tags: leadTags } : {}),
           name: leadName || leadEmail || leadPhone || "Lead",
           email: leadEmail,
           phone: leadPhone,
@@ -418,7 +450,7 @@ Deno.serve(async (req) => {
         contact_id: contactId,
         client_company_id: clientCompanyId,
         last_stage_change_date: new Date().toISOString(),
-        tags: ["Novo"],
+        tags: leadTags.length > 0 ? ["Novo", ...leadTags] : ["Novo"],
         custom_fields: {
           inbound_source_id: source.id,
           inbound_external_event_id: externalEventId,
