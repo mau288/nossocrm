@@ -1,64 +1,135 @@
 'use client';
 
 /**
- * Visão gráfica dos funis: um mini-funil por board, com quantidade e valor por
- * etapa e a taxa de conversão entre elas.
+ * Funis em formato de pirâmide — a visão de vendas dos boards.
  *
- * O filtro é por TAG DO NEGÓCIO (ex.: `produto:comunidade`,
- * `edicao:lancamento-pago`): escolhendo uma tag, todos os funis passam a
- * contar apenas os cards marcados com ela — é assim que se vê "só a
- * Comunidade" dentro de Formações ou "só o lançamento pago" em Eventos.
+ * Cada board vira um funil: fatias trapezoidais que estreitam etapa a etapa,
+ * com quantidade, valor e a conversão em relação à etapa anterior. O filtro é
+ * por TAG DO NEGÓCIO (ex.: `produto:comunidade`, `edicao:lancamento-pago`):
+ * escolhendo uma tag, os funis passam a contar só os cards marcados com ela.
  */
 
 import React, { useMemo, useState } from 'react';
-import { Filter, TrendingDown, X } from 'lucide-react';
+import { Filter, X, ArrowDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useBoards } from '@/lib/query/hooks/useBoardsQuery';
 import { useDealsView } from '@/lib/query/hooks/useDealsQuery';
 import type { DealView, Board } from '@/types';
 
-/** Tags de controle que não servem como filtro de segmento. */
+/** Tags de controle: não servem como recorte de segmento. */
 const HIDDEN_TAGS = new Set(['Novo', 'Conversa']);
+
+/** Larguras da pirâmide (%): topo largo, base estreita. */
+const WIDTH_TOP = 100;
+const WIDTH_BOTTOM = 42;
 
 const formatCurrency = (v: number) =>
   v >= 1000
     ? `R$ ${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`
     : `R$ ${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`;
 
-interface StageBar {
+interface Slice {
   id: string;
   label: string;
   count: number;
   value: number;
-  /** Conversão em relação à etapa anterior (null na primeira). */
+  /** Conversão vs. etapa anterior (null na primeira). */
   conversion: number | null;
+  /** Largura do topo e da base desta fatia, em %. */
+  top: number;
+  bottom: number;
 }
 
-function buildFunnel(board: Board, deals: DealView[]): StageBar[] {
-  // board.stages já vem ordenado pelo boardsService.
+function buildFunnel(board: Board, deals: DealView[]): Slice[] {
+  const stages = board.stages; // já vem ordenado pelo boardsService
+  const n = Math.max(stages.length, 1);
+  const step = (WIDTH_TOP - WIDTH_BOTTOM) / n;
+
   let previous: number | null = null;
-  return board.stages.map((stage) => {
+  return stages.map((stage, i) => {
     const inStage = deals.filter((d) => d.status === stage.id);
     const count = inStage.length;
     const value = inStage.reduce((sum, d) => sum + (d.value || 0), 0);
-    const conversion = previous && previous > 0 ? Math.round((count / previous) * 100) : null;
+    const conversion = previous !== null && previous > 0 ? Math.round((count / previous) * 100) : null;
     previous = count;
-    return { id: stage.id, label: stage.label, count, value, conversion };
+    return {
+      id: stage.id,
+      label: stage.label,
+      count,
+      value,
+      conversion,
+      top: WIDTH_TOP - step * i,
+      bottom: WIDTH_TOP - step * (i + 1),
+    };
   });
 }
+
+/** Uma fatia do funil, recortada em trapézio. */
+const FunnelSlice: React.FC<{ slice: Slice; index: number; total: number }> = ({
+  slice,
+  index,
+  total,
+}) => {
+  // Do dourado da marca (topo) ao âmbar profundo (base): sensação de "afunilar".
+  const intensity = index / Math.max(total - 1, 1);
+  const background = `linear-gradient(135deg,
+    rgba(255, 215, 0, ${0.95 - intensity * 0.35}) 0%,
+    rgba(245, 175, 25, ${0.9 - intensity * 0.3}) 60%,
+    rgba(214, 140, 10, ${0.85 - intensity * 0.25}) 100%)`;
+
+  const clip = `polygon(${(100 - slice.top) / 2}% 0%, ${(100 + slice.top) / 2}% 0%, ${
+    (100 + slice.bottom) / 2
+  }% 100%, ${(100 - slice.bottom) / 2}% 100%)`;
+
+  return (
+    <div className="relative" style={{ marginBottom: 2 }}>
+      <div
+        className="h-[58px] flex items-center justify-center shadow-sm"
+        style={{ background, clipPath: clip }}
+      >
+        <div className="text-center leading-tight px-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-900/70">
+            {slice.label}
+          </div>
+          <div className="text-lg font-black text-slate-900">
+            {slice.count}
+            {slice.value > 0 && (
+              <span className="ml-1.5 text-[11px] font-semibold text-slate-900/60">
+                {formatCurrency(slice.value)}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {slice.conversion !== null && (
+        <span
+          className={cn(
+            'absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5',
+            'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+            slice.conversion >= 50
+              ? 'bg-emerald-500/15 text-emerald-500'
+              : 'bg-rose-500/15 text-rose-400'
+          )}
+          title="Conversão em relação à etapa anterior"
+        >
+          <ArrowDown className="w-3 h-3" />
+          {slice.conversion}%
+        </span>
+      )}
+    </div>
+  );
+};
 
 export const FunnelOverview: React.FC = () => {
   const { data: boards = [] } = useBoards();
   const { data: deals = [] } = useDealsView();
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
-  // Tags disponíveis = as que existem nos negócios (fora as de controle)
   const availableTags = useMemo(() => {
     const set = new Set<string>();
     for (const deal of deals) {
-      for (const tag of deal.tags || []) {
-        if (!HIDDEN_TAGS.has(tag)) set.add(tag);
-      }
+      for (const tag of deal.tags || []) if (!HIDDEN_TAGS.has(tag)) set.add(tag);
     }
     return [...set].sort();
   }, [deals]);
@@ -73,10 +144,7 @@ export const FunnelOverview: React.FC = () => {
     () =>
       boards.map((board) => ({
         board,
-        stages: buildFunnel(
-          board,
-          filteredDeals.filter((d) => d.boardId === board.id)
-        ),
+        slices: buildFunnel(board, filteredDeals.filter((d) => d.boardId === board.id)),
       })),
     [boards, filteredDeals]
   );
@@ -84,11 +152,22 @@ export const FunnelOverview: React.FC = () => {
   if (boards.length === 0) return null;
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 className="text-lg font-bold text-slate-900 dark:text-white font-display">
-          Funis por etapa
-        </h2>
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white font-display">
+            Funis de venda
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Volume por etapa e conversão entre elas
+            {activeTag && (
+              <>
+                {' · filtrando '}
+                <span className="font-semibold text-primary-500">{activeTag}</span>
+              </>
+            )}
+          </p>
+        </div>
 
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-slate-400" />
@@ -118,67 +197,44 @@ export const FunnelOverview: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {funnels.map(({ board, stages }) => {
-          const topCount = Math.max(...stages.map((s) => s.count), 1);
-          const total = stages.reduce((sum, s) => sum + s.count, 0);
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {funnels.map(({ board, slices }) => {
+          const entrada = slices[0]?.count ?? 0;
+          const fim = slices.length > 1 ? slices[slices.length - 2].count : 0;
+          const total = slices.reduce((sum, s) => sum + s.count, 0);
+          const valorTotal = slices.reduce((sum, s) => sum + s.value, 0);
+          const taxaGeral = entrada > 0 ? Math.round((fim / entrada) * 100) : null;
 
           return (
             <div
               key={board.id}
-              className="border border-slate-200 dark:border-white/10 rounded-lg p-3"
+              className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-white/[0.02] p-4"
             >
-              <div className="flex items-baseline justify-between mb-3">
+              <div className="flex items-baseline justify-between mb-1">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
                   {board.name}
                 </h3>
-                <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0 ml-2">
-                  {total} {total === 1 ? 'negócio' : 'negócios'}
-                </span>
+                {taxaGeral !== null && total > 0 && (
+                  <span className="text-[11px] font-semibold text-primary-500 shrink-0 ml-2">
+                    {taxaGeral}% ponta a ponta
+                  </span>
+                )}
               </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
+                {total} {total === 1 ? 'negócio' : 'negócios'}
+                {valorTotal > 0 && ` · ${formatCurrency(valorTotal)}`}
+              </p>
 
               {total === 0 ? (
-                <p className="text-xs text-slate-400 py-4 text-center">
-                  {activeTag ? 'Nenhum negócio com essa tag.' : 'Nenhum negócio ainda.'}
-                </p>
+                <div className="opacity-30">
+                  {slices.map((s, i) => (
+                    <FunnelSlice key={s.id} slice={s} index={i} total={slices.length} />
+                  ))}
+                </div>
               ) : (
-                <div className="space-y-2">
-                  {stages.map((stage) => (
-                    <div key={stage.id}>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-slate-600 dark:text-slate-300 truncate pr-2">
-                          {stage.label}
-                        </span>
-                        <span className="flex items-center gap-2 shrink-0">
-                          {stage.conversion !== null && (
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-0.5',
-                                stage.conversion >= 50 ? 'text-emerald-500' : 'text-amber-500'
-                              )}
-                              title="Conversão em relação à etapa anterior"
-                            >
-                              <TrendingDown className="w-3 h-3" />
-                              {stage.conversion}%
-                            </span>
-                          )}
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {stage.count}
-                          </span>
-                        </span>
-                      </div>
-                      <div className="h-6 bg-slate-100 dark:bg-white/5 rounded overflow-hidden relative">
-                        <div
-                          className="h-full bg-primary-500/70 transition-all"
-                          style={{ width: `${Math.round((stage.count / topCount) * 100)}%` }}
-                        />
-                        {stage.value > 0 && (
-                          <span className="absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-500 dark:text-slate-400">
-                            {formatCurrency(stage.value)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                <div>
+                  {slices.map((s, i) => (
+                    <FunnelSlice key={s.id} slice={s} index={i} total={slices.length} />
                   ))}
                 </div>
               )}
