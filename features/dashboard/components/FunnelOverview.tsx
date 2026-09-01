@@ -23,6 +23,63 @@ const HIDDEN_TAGS = new Set(['Novo', 'Conversa']);
 const WIDTH_TOP = 100;
 const WIDTH_BOTTOM = 42;
 
+/**
+ * Cada etapa pinta com a SUA cor (a mesma do topo da coluna no Kanban), então
+ * mexer na cor da etapa no board reflete aqui. As classes do Tailwind viram hex
+ * porque o gradiente é inline.
+ */
+const STAGE_HEX: Record<string, string> = {
+  'bg-slate-500': '#64748b',
+  'bg-gray-500': '#6b7280',
+  'bg-red-500': '#ef4444',
+  'bg-rose-500': '#f43f5e',
+  'bg-orange-500': '#f97316',
+  'bg-amber-500': '#f59e0b',
+  'bg-yellow-500': '#eab308',
+  'bg-lime-500': '#84cc16',
+  'bg-green-500': '#22c55e',
+  'bg-emerald-500': '#10b981',
+  'bg-teal-500': '#14b8a6',
+  'bg-cyan-500': '#06b6d4',
+  'bg-sky-500': '#0ea5e9',
+  'bg-blue-500': '#3b82f6',
+  'bg-indigo-500': '#6366f1',
+  'bg-violet-500': '#8b5cf6',
+  'bg-purple-500': '#a855f7',
+  'bg-fuchsia-500': '#d946ef',
+  'bg-pink-500': '#ec4899',
+};
+
+/** Paleta da casa, usada quando a etapa não tem cor definida. */
+const FALLBACK_HEX = ['#ffd700', '#f5af19', '#f7971e', '#eb7f2f', '#d68c0a', '#b26a00'];
+
+function stageHex(color: string | undefined, index: number): string {
+  if (color && STAGE_HEX[color]) return STAGE_HEX[color];
+  if (color && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) return color;
+  return FALLBACK_HEX[index % FALLBACK_HEX.length];
+}
+
+function shade(hex: string, percent: number): string {
+  const n = hex.replace('#', '');
+  const full = n.length === 3 ? n.split('').map((c) => c + c).join('') : n;
+  const num = parseInt(full, 16);
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  const r = clamp(((num >> 16) & 255) * (1 + percent));
+  const g = clamp(((num >> 8) & 255) * (1 + percent));
+  const b = clamp((num & 255) * (1 + percent));
+  return `rgb(${r} ${g} ${b})`;
+}
+
+/** Texto preto ou branco conforme o brilho da cor da etapa. */
+function textOn(hex: string): string {
+  const n = hex.replace('#', '');
+  const full = n.length === 3 ? n.split('').map((c) => c + c).join('') : n;
+  const num = parseInt(full, 16);
+  const luminance =
+    (0.299 * ((num >> 16) & 255) + 0.587 * ((num >> 8) & 255) + 0.114 * (num & 255)) / 255;
+  return luminance > 0.62 ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.96)';
+}
+
 const formatCurrency = (v: number) =>
   v >= 1000
     ? `R$ ${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`
@@ -38,6 +95,8 @@ interface Slice {
   /** Largura do topo e da base desta fatia, em %. */
   top: number;
   bottom: number;
+  /** Cor da etapa (hex), vinda do board. */
+  hex: string;
 }
 
 function buildFunnel(board: Board, deals: DealView[]): Slice[] {
@@ -60,22 +119,19 @@ function buildFunnel(board: Board, deals: DealView[]): Slice[] {
       conversion,
       top: WIDTH_TOP - step * i,
       bottom: WIDTH_TOP - step * (i + 1),
+      hex: stageHex(stage.color, i),
     };
   });
 }
 
 /** Uma fatia do funil, recortada em trapézio. */
-const FunnelSlice: React.FC<{ slice: Slice; index: number; total: number }> = ({
-  slice,
-  index,
-  total,
-}) => {
-  // Do dourado da marca (topo) ao âmbar profundo (base): sensação de "afunilar".
-  const intensity = index / Math.max(total - 1, 1);
-  const background = `linear-gradient(135deg,
-    rgba(255, 215, 0, ${0.95 - intensity * 0.35}) 0%,
-    rgba(245, 175, 25, ${0.9 - intensity * 0.3}) 60%,
-    rgba(214, 140, 10, ${0.85 - intensity * 0.25}) 100%)`;
+const FunnelSlice: React.FC<{ slice: Slice }> = ({ slice }) => {
+  // Cada etapa na sua própria cor, com leve profundidade no gradiente.
+  const background = `linear-gradient(135deg, ${shade(slice.hex, 0.1)} 0%, ${slice.hex} 55%, ${shade(
+    slice.hex,
+    -0.18
+  )} 100%)`;
+  const color = textOn(slice.hex);
 
   const clip = `polygon(${(100 - slice.top) / 2}% 0%, ${(100 + slice.top) / 2}% 0%, ${
     (100 + slice.bottom) / 2
@@ -87,14 +143,14 @@ const FunnelSlice: React.FC<{ slice: Slice; index: number; total: number }> = ({
         className="h-[58px] flex items-center justify-center shadow-sm"
         style={{ background, clipPath: clip }}
       >
-        <div className="text-center leading-tight px-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-900/70">
+        <div className="text-center leading-tight px-4" style={{ color }}>
+          <div className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
             {slice.label}
           </div>
-          <div className="text-lg font-black text-slate-900">
+          <div className="text-lg font-black">
             {slice.count}
             {slice.value > 0 && (
-              <span className="ml-1.5 text-[11px] font-semibold text-slate-900/60">
+              <span className="ml-1.5 text-[11px] font-semibold opacity-75">
                 {formatCurrency(slice.value)}
               </span>
             )}
@@ -227,14 +283,14 @@ export const FunnelOverview: React.FC = () => {
 
               {total === 0 ? (
                 <div className="opacity-30">
-                  {slices.map((s, i) => (
-                    <FunnelSlice key={s.id} slice={s} index={i} total={slices.length} />
+                  {slices.map((s) => (
+                    <FunnelSlice key={s.id} slice={s} />
                   ))}
                 </div>
               ) : (
                 <div>
-                  {slices.map((s, i) => (
-                    <FunnelSlice key={s.id} slice={s} index={i} total={slices.length} />
+                  {slices.map((s) => (
+                    <FunnelSlice key={s.id} slice={s} />
                   ))}
                 </div>
               )}
