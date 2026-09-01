@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { Trash2, X } from 'lucide-react';
 import { useContactsController } from './hooks/useContactsController';
+import { useContact } from '@/lib/query/hooks/useContactsQuery';
 import { ContactsHeader } from './components/ContactsHeader';
 import { ContactsFilters } from './components/ContactsFilters';
 import { ContactsTabs } from './components/ContactsTabs';
@@ -48,6 +49,24 @@ export const ContactsPage: React.FC = () => {
 
     const { data: duplicateGroups = [] } = useDuplicateContactsQuery();
     const mergeMutation = useMergeContactsMutation();
+
+    // Deep-link: /contacts?id=<uuid> (ex.: botão "Ver Contato" da conversa)
+    // abre a ficha completa do contato em vez de largar o usuário na lista.
+    // window.location em efeito evita o requisito de <Suspense> do useSearchParams.
+    const [focusContactId, setFocusContactId] = React.useState<string | undefined>(undefined);
+    React.useEffect(() => {
+        const id = new URLSearchParams(window.location.search).get('id');
+        if (id) setFocusContactId(id);
+    }, []);
+    const { data: focusContact } = useContact(focusContactId);
+    const openedFromLinkRef = React.useRef(false);
+    React.useEffect(() => {
+        if (focusContact && !openedFromLinkRef.current) {
+            openedFromLinkRef.current = true;
+            controller.openEditModal(focusContact);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusContact]);
 
     const duplicateContactIds = React.useMemo(() => {
         const ids = new Set<string>();
