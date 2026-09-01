@@ -198,11 +198,6 @@ const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* Funis por etapa — visão gráfica dos boards, filtrável por tag */}
-      <div className="shrink-0">
-        <FunnelOverview />
-      </div>
-
       {/* Wallet Health Section - Compact */}
       <div className="space-y-3 shrink-0">
         <h2 className="text-lg font-bold text-slate-900 dark:text-white font-display flex items-center gap-2">
@@ -350,6 +345,11 @@ const DashboardPage: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Funis de venda — fecham a página, depois das atividades */}
+      <div className="shrink-0">
+        <FunnelOverview />
       </div>
 
       {/* Pipeline Alerts Modal */}

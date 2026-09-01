@@ -126,10 +126,11 @@ function buildFunnel(board: Board, deals: DealView[]): Slice[] {
 
 /** Uma fatia do funil, recortada em trapézio. */
 const FunnelSlice: React.FC<{ slice: Slice }> = ({ slice }) => {
-  // Cada etapa na sua própria cor, com leve profundidade no gradiente.
-  const background = `linear-gradient(135deg, ${shade(slice.hex, 0.1)} 0%, ${slice.hex} 55%, ${shade(
+  // Cada etapa na sua própria cor: brilho no topo, corpo cheio e sombra na
+  // base — dá volume sem depender de imagem.
+  const background = `linear-gradient(180deg, ${shade(slice.hex, 0.22)} 0%, ${slice.hex} 45%, ${shade(
     slice.hex,
-    -0.18
+    -0.22
   )} 100%)`;
   const color = textOn(slice.hex);
 
@@ -140,8 +141,12 @@ const FunnelSlice: React.FC<{ slice: Slice }> = ({ slice }) => {
   return (
     <div className="relative" style={{ marginBottom: 2 }}>
       <div
-        className="h-[58px] flex items-center justify-center shadow-sm"
-        style={{ background, clipPath: clip }}
+        className="h-[64px] flex items-center justify-center transition-transform hover:scale-[1.02]"
+        style={{
+          background,
+          clipPath: clip,
+          boxShadow: `0 6px 14px -8px ${slice.hex}`,
+        }}
       >
         <div className="text-center leading-tight px-4" style={{ color }}>
           <div className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
