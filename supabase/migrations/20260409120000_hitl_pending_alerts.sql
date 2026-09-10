@@ -150,6 +150,9 @@ COMMENT ON FUNCTION public.trigger_hitl_alerts() IS
 -- ============================================================================
 -- Marca como 'expired' as pending_advances além de 24h
 
+-- Retorno mudou em relacao a versao anterior; CREATE OR REPLACE nao troca tipo.
+DROP FUNCTION IF EXISTS public.expire_old_pending_advances();
+
 CREATE OR REPLACE FUNCTION public.expire_old_pending_advances()
   RETURNS TABLE(expired_count BIGINT) AS $$
 DECLARE
@@ -196,7 +199,7 @@ BEGIN
     'SELECT public.expire_old_pending_advances();'
   );
   RAISE NOTICE 'Created cron job: expire-hitl-pending (every 12 hours)';
-EXCEPTION WHEN undefined_object THEN
+EXCEPTION WHEN undefined_object OR invalid_schema_name THEN
   RAISE NOTICE 'pg_cron extension not available. Jobs must be triggered manually.
     Call trigger_hitl_alerts() and expire_old_pending_advances() from application code.';
 END $$;

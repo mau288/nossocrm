@@ -7,8 +7,9 @@
 -- RLS applies, but explicit revoke prevents anon access attempts).
 -- =============================================================================
 
-REVOKE ALL ON FUNCTION public.search_messages(UUID, TEXT, INT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.search_messages(UUID, TEXT, INT) TO authenticated;
+-- A versao anterior devolve outra RETURNS TABLE; CREATE OR REPLACE nao consegue
+-- trocar o tipo de retorno, entao a funcao antiga sai antes.
+DROP FUNCTION IF EXISTS public.search_messages(uuid, text, integer);
 
 CREATE OR REPLACE FUNCTION public.search_messages(
   p_conversation_id UUID,
@@ -55,3 +56,6 @@ BEGIN
   LIMIT LEAST(p_limit, 100);
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.search_messages(UUID, TEXT, INT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.search_messages(UUID, TEXT, INT) TO authenticated;

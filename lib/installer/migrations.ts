@@ -2,7 +2,26 @@ import fs from 'fs';
 import path from 'path';
 import { Client } from 'pg';
 
-const SCHEMA_PATH = path.resolve(process.cwd(), 'supabase/migrations/20251201000000_schema_init.sql');
+const MIGRATIONS_DIR = path.resolve(process.cwd(), 'supabase/migrations');
+
+/**
+ * Livro-caixa das migrations. Guarda o nome de cada arquivo já aplicado, para
+ * que reinstalar/retomar não tente rodar tudo de novo.
+ */
+const LEDGER_DDL = `
+  CREATE TABLE IF NOT EXISTS public._installer_migrations (
+    name        text PRIMARY KEY,
+    applied_at  timestamptz NOT NULL DEFAULT now()
+  );
+`;
+
+/** Migrations em ordem cronológica (o nome do arquivo começa com o timestamp). */
+function listMigrationFiles(): string[] {
+  return fs
+    .readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+}
 
 function needsSsl(connectionString: string) {
   return !/sslmode=disable/i.test(connectionString);
@@ -105,7 +124,10 @@ async function waitForStorageReady(client: Client, opts?: { timeoutMs?: number; 
  * Função pública `runSchemaMigration` do projeto.
  */
 export async function runSchemaMigration(dbUrl: string) {
-  const schemaSql = fs.readFileSync(SCHEMA_PATH, 'utf8');
+  const files = listMigrationFiles();
+  if (files.length === 0) {
+    throw new Error(`Nenhuma migration encontrada em ${MIGRATIONS_DIR}.`);
+  }
   const normalizedDbUrl = stripSslModeParam(dbUrl);
 
   const createClient = () =>
@@ -121,7 +143,39 @@ export async function runSchemaMigration(dbUrl: string) {
   try {
     // Never "skip" Storage. We wait until it's ready, then run migrations.
     await waitForStorageReady(client);
-    await client.query(schemaSql);
+
+    // O snapshot inicial monta o schema; as migrations seguintes trazem tudo o
+    // que veio depois (messaging, board_ai_config, HITL, ai_paused...). Aplicar
+    // só o snapshot deixa o banco em "schema drift": o app sobe, mas rotas como
+    // GET /api/settings/ai respondem 500 porque as colunas não existem.
+    await client.query(LEDGER_DDL);
+    const applied = await client.query<{ name: string }>(
+      'SELECT name FROM public._installer_migrations'
+    );
+    const done = new Set(applied.rows.map((r) => r.name));
+
+    for (const file of files) {
+      if (done.has(file)) continue;
+
+      const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+      // Uma transação por arquivo: ou a migration entra inteira, ou não entra —
+      // e o livro-caixa nunca marca como feita uma migration que falhou.
+      try {
+        await client.query('BEGIN');
+        await client.query(sql);
+        await client.query('INSERT INTO public._installer_migrations (name) VALUES ($1)', [file]);
+        await client.query('COMMIT');
+        console.log(`[migrations] ${file} aplicada.`);
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`Falha na migration ${file}: ${msg}`);
+      }
+    }
+
+    // Sem isso o PostgREST continua servindo o schema antigo em cache e o app
+    // reclama de colunas que já existem no banco.
+    await client.query(`NOTIFY pgrst, 'reload schema'`).catch(() => undefined);
   } finally {
     await client.end();
   }
