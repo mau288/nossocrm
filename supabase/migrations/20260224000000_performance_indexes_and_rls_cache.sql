@@ -37,13 +37,27 @@ CREATE INDEX IF NOT EXISTS idx_leads_organization_id
   ON public.leads(organization_id);
 
 -- ai_decisions.organization_id
-CREATE INDEX IF NOT EXISTS idx_ai_decisions_organization_id
-  ON public.ai_decisions(organization_id);
+-- Nem toda instalacao tem organization_id nessas tabelas; sem a guarda a
+-- migration inteira aborta em banco novo.
+DO $mig$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'ai_decisions'
+               AND column_name = 'organization_id') THEN
+    CREATE INDEX IF NOT EXISTS idx_ai_decisions_organization_id ON public.ai_decisions(organization_id);
+  END IF;
+END $mig$;
 
 -- messaging_webhook_events.organization_id
 -- Used in webhook dedup checks and audit queries.
-CREATE INDEX IF NOT EXISTS idx_messaging_webhook_events_organization_id
-  ON public.messaging_webhook_events(organization_id);
+-- Nem toda instalacao tem organization_id nessas tabelas; sem a guarda a
+-- migration inteira aborta em banco novo.
+DO $mig$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'messaging_webhook_events'
+               AND column_name = 'organization_id') THEN
+    CREATE INDEX IF NOT EXISTS idx_messaging_webhook_events_organization_id ON public.messaging_webhook_events(organization_id);
+  END IF;
+END $mig$;
 
 
 -- ============================================================
