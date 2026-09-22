@@ -12,15 +12,16 @@ import { ChannelsSection } from './components/ChannelsSection';
 import { BusinessUnitsSection } from './components/BusinessUnitsSection';
 import { DataStorageSettings } from './components/DataStorageSettings';
 import { ProductsCatalogManager } from './components/ProductsCatalogManager';
+import GatewaysManager from './components/GatewaysManager';
 import { AICenterSettings } from './AICenterSettings';
 
 import { UsersPage } from './UsersPage';
 import { useAuth } from '@/context/AuthContext';
-import { Settings as SettingsIcon, Users, Database, Sparkles, Plug, Package, Building2 } from 'lucide-react';
+import { Settings as SettingsIcon, Users, Database, Sparkles, Plug, Package, Building2, Landmark } from 'lucide-react';
 import { SelectField } from '@/components/ui/FormField';
 import { Button } from '@/components/ui/button';
 
-type SettingsTab = 'general' | 'products' | 'business-units' | 'integrations' | 'ai' | 'data' | 'users';
+type SettingsTab = 'general' | 'products' | 'gateways' | 'business-units' | 'integrations' | 'ai' | 'data' | 'users';
 
 interface GeneralSettingsProps {
   hash?: string;
@@ -194,6 +195,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ tab: initialTab }) => {
       setActiveTab('ai');
     } else if (pathname?.includes('/settings/products')) {
       setActiveTab('products');
+    } else if (pathname?.includes('/settings/financeiro')) {
+      setActiveTab('gateways');
     } else if (pathname?.includes('/settings/business-units') || pathname?.includes('/settings/unidades')) {
       setActiveTab('business-units');
     } else if (pathname?.includes('/settings/integracoes')) {
@@ -210,6 +213,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ tab: initialTab }) => {
   const tabs = [
     { id: 'general' as SettingsTab, name: 'Geral', icon: SettingsIcon },
     ...(profile?.role === 'admin' ? [{ id: 'products' as SettingsTab, name: 'Produtos/Serviços', icon: Package }] : []),
+    ...(profile?.role === 'admin' ? [{ id: 'gateways' as SettingsTab, name: 'Financeiro', icon: Landmark }] : []),
     ...(profile?.role === 'admin' ? [{ id: 'business-units' as SettingsTab, name: 'Unidades', icon: Building2 }] : []),
     ...(profile?.role === 'admin' ? [{ id: 'integrations' as SettingsTab, name: 'Integrações', icon: Plug }] : []),
     { id: 'ai' as SettingsTab, name: 'Central de I.A', icon: Sparkles },
@@ -221,6 +225,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ tab: initialTab }) => {
     switch (activeTab) {
       case 'products':
         return <ProductsSettings />;
+      case 'gateways':
+        return <GatewaysManager />;
       case 'business-units':
         return (
           <div className="pb-10 space-y-8">

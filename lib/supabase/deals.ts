@@ -100,6 +100,14 @@ export interface DbDeal {
   is_lost: boolean;
   /** Data de fechamento. */
   closed_at: string | null;
+  /** Gateway de pagamento da venda (FK). */
+  gateway_id: string | null;
+  /** Forma de pagamento usada; junto com o gateway resolve a taxa. */
+  payment_method: string | null;
+  /** Override da taxa do gateway nesta venda, em %. NULL = usa o padrao. */
+  fee_pct: number | string | null;
+  /** Override do imposto nesta venda, em %. NULL = usa o padrao da organizacao. */
+  tax_pct: number | string | null;
   /** AI-extracted BANT fields (zero config). */
   ai_extracted: Record<string, any> | null;
 }
@@ -164,6 +172,11 @@ const transformDeal = (db: DbDeal | DbDealWithItems, items?: DbDealItem[]): Deal
     isWon: db.is_won ?? false,
     isLost: db.is_lost ?? false,
     closedAt: db.closed_at || undefined,
+    gatewayId: db.gateway_id || undefined,
+    paymentMethod: (db.payment_method as Deal['paymentMethod']) || undefined,
+    // 0 e taxa valida, entao so vira undefined quando o banco traz NULL de verdade
+    feePct: db.fee_pct === null || db.fee_pct === undefined ? undefined : Number(db.fee_pct),
+    taxPct: db.tax_pct === null || db.tax_pct === undefined ? undefined : Number(db.tax_pct),
     priority: (db.priority as Deal['priority']) || 'medium',
     boardId: db.board_id || '',
     contactId: db.contact_id || '',
@@ -212,6 +225,12 @@ const transformDealToDb = (deal: Partial<Deal>): Partial<DbDeal> => {
   if (deal.isWon !== undefined) db.is_won = deal.isWon;
   if (deal.isLost !== undefined) db.is_lost = deal.isLost;
   if (deal.closedAt !== undefined) db.closed_at = deal.closedAt || null;
+
+  // Financeiro: limpar o campo na tela grava NULL, que faz o negocio voltar ao padrao
+  if (deal.gatewayId !== undefined) db.gateway_id = sanitizeUUID(deal.gatewayId);
+  if (deal.paymentMethod !== undefined) db.payment_method = deal.paymentMethod || null;
+  if (deal.feePct !== undefined) db.fee_pct = deal.feePct === null ? null : deal.feePct;
+  if (deal.taxPct !== undefined) db.tax_pct = deal.taxPct === null ? null : deal.taxPct;
 
   if (deal.priority !== undefined) db.priority = deal.priority;
   if (deal.boardId !== undefined) db.board_id = sanitizeUUID(deal.boardId);
