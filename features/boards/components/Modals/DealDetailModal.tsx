@@ -17,6 +17,7 @@ import { useUIState } from '@/store/uiState';
 import { useActiveProducts } from '@/lib/query/hooks/useProductsQuery';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
+import DealFinanceiroSection from './DealFinanceiroSection';
 // Radix AlertDialog (ConfirmDialog) fica sem eventos quando aninhado no Modal legado
 // deste detalhe (portal + delegacao React nao se falam aqui) — o ConfirmModal
 // in-tree funciona; ver historico do bug 'Excluir nao responde'.
@@ -730,6 +731,9 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
                     </div>
                   </div>
                 </div>
+
+                {/* FINANCEIRO */}
+                <DealFinanceiroSection deal={deal} updateDeal={updateDeal} />
 
                 {/* TAGS */}
                 <div className="pt-4 border-t border-slate-100 dark:border-white/5">

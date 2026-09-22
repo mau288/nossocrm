@@ -10,6 +10,7 @@ import { useToast } from '@/context/ToastContext';
 import { TrendingUp, TrendingDown, Users, DollarSign, Target, Clock, MoreVertical, AlertTriangle } from 'lucide-react';
 import { StatCard } from './components/StatCard';
 import { FunnelOverview } from './components/FunnelOverview';
+import ResultadoFinanceiroSection from './components/ResultadoFinanceiroSection';
 import { ActivityFeedItem } from './components/ActivityFeedItem';
 import { PipelineAlertsModal } from './components/PipelineAlertsModal';
 import { AIMetricsSection } from './components/AIMetricsSection';
@@ -196,6 +197,11 @@ const DashboardPage: React.FC = () => {
             comparisonLabel={COMPARISON_LABELS[period]}
           />
         </div>
+      )}
+
+      {/* Realizado x previsao, separados de proposito: somar os dois daria um numero que nao existe */}
+      {!isLoading && (
+        <ResultadoFinanceiroSection wonDeals={wonDeals} openDeals={activeSnapshotDeals} />
       )}
 
       {/* Wallet Health Section - Compact */}

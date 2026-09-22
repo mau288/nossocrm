@@ -223,6 +223,11 @@ export const queryKeys = {
     products: createQueryKeys('products'),
 
     /**
+     * Gateways de pagamento e suas taxas.
+     */
+    gateways: createQueryKeys('gateways'),
+
+    /**
      * Org-level + user settings query keys.
      */
     orgSettings: createQueryKeys('orgSettings'),

@@ -249,8 +249,44 @@ export interface Deal {
   lossReason?: string; // For win/loss analysis
   aiExtracted?: Record<string, any>; // AI-extracted BANT fields (zero config)
 
+  // Financeiro. A taxa e do gateway + forma de pagamento; o imposto vem da organizacao.
+  // feePct/taxPct preenchidos = override desta venda; undefined = usa o padrao.
+  gatewayId?: string;
+  paymentMethod?: PaymentMethod;
+  feePct?: number;
+  taxPct?: number;
+
   // @deprecated - Use clientCompanyId instead
   companyId?: string;
+}
+
+/** Formas de pagamento oferecidas na tela. O banco aceita texto livre para nao travar
+ *  o cadastro quando surgir forma nova. */
+export type PaymentMethod = 'pix' | 'boleto' | 'cartao' | 'cartao_parcelado';
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  pix: 'PIX',
+  boleto: 'Boleto',
+  cartao: 'Cartão à vista',
+  cartao_parcelado: 'Cartão parcelado',
+};
+
+/** Gateway de pagamento (TMB, Eduzz, Hotmart, Lia...). `feePct` e a taxa padrao, usada
+ *  quando a forma de pagamento escolhida nao tem taxa propria em `fees`. */
+export interface Gateway {
+  id: string;
+  organizationId?: OrganizationId;
+  name: string;
+  feePct: number;
+  active?: boolean;
+  fees?: GatewayFee[];
+}
+
+export interface GatewayFee {
+  id: string;
+  gatewayId: string;
+  paymentMethod: string;
+  feePct: number;
 }
 
 // Helper Type para Visualização (Desnormalizado)

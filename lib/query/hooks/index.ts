@@ -240,6 +240,14 @@ export {
   useDeleteProduct,
 } from './useProductsQuery';
 
+// Gateways de pagamento e imposto padrao
+export {
+  useGateways,
+  useActiveGateways,
+  useDefaultTaxPct,
+  useSetGatewayFee,
+} from './useGatewaysQuery';
+
 // Org Settings (user prefs + org AI config)
 export {
   useOrgSettings,
