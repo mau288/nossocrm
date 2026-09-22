@@ -17,6 +17,10 @@ para re-aplicar/validar cada item após o merge da v2.
 | 10 | 01/09/2026 | `webhook-in` aceita `tags` (array ou CSV) e acumula no contato | `supabase/functions/webhook-in/index.ts` | n8n manda o funil de origem junto com o lead |
 | 11 | 01/09/2026 | Funis em pirâmide colorida por etapa, filtráveis por tag, no fim da Visão Geral | `features/dashboard/components/FunnelOverview.tsx` | Monitorar leads por produto/fase |
 | 12 | 01/09/2026 | **Instalador aplica TODAS as migrations**, não só o snapshot (+ livro-caixa `_installer_migrations`) e 3 migrations corrigidas | `lib/installer/migrations.ts`, `20260223000002_*`, `20260224000000_*`, `20260409120000_*` | Sem isso a instalação nasce em *schema drift* e a Central de I.A. responde 500. **Vale como PR pro upstream** |
+| 13 | 22/09/2026 | **Etapa de ganho/perda declarada nos 3 funis** + "Matriculado" padronizado + "No-show" na Consultiva | `supabase/migrations/20260922200000_funis_ganho_visibilidade.sql` | Os boards nasceram sem `won_stage_id`/`lost_stage_id`, entao o botao GANHO caia no fallback: marcava `is_won` e **nao movia o card** |
+| 14 | 22/09/2026 | "Em Aberto" mostra fechado recente; periodo escolhido desliga a janela de 30 dias; "Todos" deixa de aplicar janela | `features/boards/hooks/useBoardsController.ts` | O ramo `open` descartava o ganho antes do `matchesRecent` ter efeito e o card sumia da tela ao ser ganho. **Bug existe no upstream** |
+| 15 | 22/09/2026 | Filtro de periodo exposto no header do board, com `closed_at` para card fechado e `created_at` para aberto | `features/boards/components/Kanban/KanbanHeader.tsx`, `PipelineView.tsx` | O `dateRange` ja existia no controller e nao tinha controle na UI; filtrar por `created_at` enganaria o relatorio mensal |
+| 16 | 22/09/2026 | Lapis no campo de valor do negocio, igual ao do titulo | `features/boards/components/Modals/DealDetailModal.tsx` | O valor so editava clicando no numero, sem afordancia |
 
 ## Planejado (ver docs privados em mau288/arkacademy-crm-docs)
 - Provedor WhatsApp **uazapi** (`lib/messaging/providers/whatsapp/uazapi.provider.ts` + Factory + modal + edge function)

@@ -46,6 +46,8 @@ interface PipelineViewProps {
   setOwnerFilter: (filter: 'all' | 'mine') => void;
   statusFilter: 'open' | 'won' | 'lost' | 'all';
   setStatusFilter: (filter: 'open' | 'won' | 'lost' | 'all') => void;
+  dateRange: { start: string; end: string };
+  setDateRange: (range: { start: string; end: string }) => void;
   draggingId: string | null;
   selectedDealId: string | null;
   setSelectedDealId: (id: string | null) => void;
@@ -221,6 +223,8 @@ export const PipelineView: React.FC<PipelineViewProps> = ({
   setOwnerFilter,
   statusFilter,
   setStatusFilter,
+  dateRange,
+  setDateRange,
   draggingId,
   selectedDealId,
   setSelectedDealId,
@@ -325,6 +329,8 @@ export const PipelineView: React.FC<PipelineViewProps> = ({
             setOwnerFilter={setOwnerFilter}
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
+            dateRange={dateRange}
+            setDateRange={setDateRange}
             onNewDeal={() => setIsCreateModalOpen(true)}
           />
 

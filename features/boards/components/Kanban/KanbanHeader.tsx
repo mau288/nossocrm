@@ -23,6 +23,8 @@ interface KanbanHeaderProps {
     setOwnerFilter: (filter: 'all' | 'mine') => void;
     statusFilter: 'open' | 'won' | 'lost' | 'all';
     setStatusFilter: (filter: 'open' | 'won' | 'lost' | 'all') => void;
+    dateRange: { start: string; end: string };
+    setDateRange: (range: { start: string; end: string }) => void;
     onNewDeal: () => void;
 }
 
@@ -70,6 +72,7 @@ export const KanbanHeader: React.FC<KanbanHeaderProps> = ({
     searchTerm, setSearchTerm,
     ownerFilter, setOwnerFilter,
     statusFilter, setStatusFilter,
+    dateRange, setDateRange,
     onNewDeal
 }) => {
     return (
@@ -192,6 +195,39 @@ export const KanbanHeader: React.FC<KanbanHeaderProps> = ({
                                 statusFilter === 'lost' ? 'bg-red-500' : 'bg-slate-400'
                             }`} />
                     </div>
+                </div>
+
+                {/* Periodo: card fechado filtra pela data em que fechou, card aberto pela data em
+                    que nasceu. Escolher um periodo desliga a janela de 30 dias do "Em Aberto". */}
+                <div className="flex items-center gap-1">
+                    <input
+                        type="date"
+                        value={dateRange.start}
+                        onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                        aria-label="Periodo: data inicial"
+                        title="Periodo: data inicial"
+                        className="px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-white/5 text-sm outline-none focus:ring-2 focus:ring-primary-500 dark:text-white backdrop-blur-sm cursor-pointer"
+                    />
+                    <span className="text-slate-400 text-sm">ate</span>
+                    <input
+                        type="date"
+                        value={dateRange.end}
+                        onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                        aria-label="Periodo: data final"
+                        title="Periodo: data final"
+                        className="px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-white/5 text-sm outline-none focus:ring-2 focus:ring-primary-500 dark:text-white backdrop-blur-sm cursor-pointer"
+                    />
+                    {(dateRange.start || dateRange.end) && (
+                        <button
+                            type="button"
+                            onClick={() => setDateRange({ start: '', end: '' })}
+                            aria-label="Limpar periodo"
+                            title="Limpar periodo"
+                            className="px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-white/5 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white outline-none focus:ring-2 focus:ring-primary-500 backdrop-blur-sm"
+                        >
+                            &times;
+                        </button>
+                    )}
                 </div>
 
                 <div className="relative">

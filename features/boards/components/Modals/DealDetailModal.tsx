@@ -486,10 +486,11 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
                       setEditValue(deal.value.toString());
                       setIsEditingValue(true);
                     }}
-                    className="text-lg text-primary-600 dark:text-primary-400 font-mono font-bold cursor-pointer hover:underline decoration-dashed underline-offset-4"
+                    className="text-lg text-primary-600 dark:text-primary-400 font-mono font-bold cursor-pointer hover:underline decoration-dashed underline-offset-4 flex items-center gap-2 group"
                     title="Clique para editar valor"
                   >
                     ${deal.value.toLocaleString()}
+                    <Pencil size={14} className="opacity-0 group-hover:opacity-50 text-slate-400" />
                   </p>
                 )}
               </div>

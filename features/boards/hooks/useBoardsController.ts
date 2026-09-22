@@ -369,6 +369,7 @@ export const useBoardsController = () => {
       endDate.setHours(23, 59, 59, 999);
       endTime = endDate.getTime();
     }
+    const hasDateFilter = startTime !== null || endTime !== null;
 
     return deals.filter(l => {
       // Search: usa searchLower pré-computado
@@ -379,32 +380,42 @@ export const useBoardsController = () => {
       const matchesOwner =
         ownerFilter === 'all' || l.ownerId === profile?.id;
 
-      // Date: usa timestamps pré-computados (comparação numérica é mais rápida)
+      // Date: usa timestamps pré-computados (comparação numérica é mais rápida).
+      // Card fechado é filtrado pela data em que FECHOU, card aberto pela data em que nasceu —
+      // senão o relatório de um mês traria a matrícula pelo dia em que o lead entrou.
       let matchesDate = true;
-      if (startTime !== null) {
-        matchesDate = new Date(l.createdAt).getTime() >= startTime;
-      }
-      if (matchesDate && endTime !== null) {
-        matchesDate = new Date(l.createdAt).getTime() <= endTime;
+      if (hasDateFilter) {
+        const isClosed = l.isWon || l.isLost;
+        const refTime = new Date(
+          (isClosed ? (l.closedAt || l.updatedAt) : l.createdAt) || l.createdAt
+        ).getTime();
+        if (startTime !== null) {
+          matchesDate = refTime >= startTime;
+        }
+        if (matchesDate && endTime !== null) {
+          matchesDate = refTime <= endTime;
+        }
       }
 
       // Status Filter Logic
+      // "Em Aberto" e "Todos" não descartam o card fechado aqui: quem recorta o fechado é a
+      // janela logo abaixo. Antes, o ramo 'open' matava o ganho antes da janela ter efeito —
+      // por isso o card sumia do board no instante em que era marcado como ganho.
       let matchesStatus = true;
-      if (statusFilter === 'open') {
-        matchesStatus = !l.isWon && !l.isLost;
-      } else if (statusFilter === 'won') {
+      if (statusFilter === 'won') {
         matchesStatus = l.isWon;
       } else if (statusFilter === 'lost') {
         matchesStatus = l.isLost;
       }
 
+      // Janela de 30 dias: só vale no "Em Aberto" e só enquanto nenhum período foi escolhido.
+      // Com período escolhido a janela desliga (senão filtrar "julho" continuaria escondendo o
+      // matriculado de julho). "Todos" nunca aplica janela — aplicava, contrariando o nome.
       let matchesRecent = true;
-      if (statusFilter === 'open' || statusFilter === 'all') {
-        if (l.isWon || l.isLost) {
-          // Usa cutoffTime pré-computado
-          if (new Date(l.updatedAt).getTime() < cutoffTime) {
-            matchesRecent = false;
-          }
+      if (statusFilter === 'open' && !hasDateFilter && (l.isWon || l.isLost)) {
+        const closedTime = new Date(l.closedAt || l.updatedAt).getTime();
+        if (closedTime < cutoffTime) {
+          matchesRecent = false;
         }
       }
 
