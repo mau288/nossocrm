@@ -40,8 +40,13 @@ export const config = {
          * - _next/static, _next/image
          * - _next/data (mesmo excluindo, o Next pode ainda invocar o Proxy para /_next/data por segurança)
          * - arquivos de metadata (manifest, sitemap, robots)
+         * - sw.js e manifest.json: o navegador busca os dois sem sessao valida. Caindo aqui eles
+         *   viravam 307 para /login, e o browser recusa redirect em script de service worker
+         *   ("The script resource is behind a redirect, which is disallowed"). Sem conseguir se
+         *   atualizar, o SW antigo seguia servindo o shell em cache e o app aparecia quebrado
+         *   depois de cada deploy.
          * - assets (imagens)
          */
-        '/((?!api|_next/static|_next/image|_next/data|favicon.ico|sitemap.xml|robots.txt|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+        '/((?!api|_next/static|_next/image|_next/data|favicon.ico|sitemap.xml|robots.txt|sw.js|manifest.json|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
     ],
 }
