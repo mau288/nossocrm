@@ -21,6 +21,7 @@ para re-aplicar/validar cada item após o merge da v2.
 | 14 | 22/09/2026 | "Em Aberto" mostra fechado recente; periodo escolhido desliga a janela de 30 dias; "Todos" deixa de aplicar janela | `features/boards/hooks/useBoardsController.ts` | O ramo `open` descartava o ganho antes do `matchesRecent` ter efeito e o card sumia da tela ao ser ganho. **Bug existe no upstream** |
 | 15 | 22/09/2026 | Filtro de periodo exposto no header do board, com `closed_at` para card fechado e `created_at` para aberto | `features/boards/components/Kanban/KanbanHeader.tsx`, `PipelineView.tsx` | O `dateRange` ja existia no controller e nao tinha controle na UI; filtrar por `created_at` enganaria o relatorio mensal |
 | 16 | 22/09/2026 | Lapis no campo de valor do negocio, igual ao do titulo | `features/boards/components/Modals/DealDetailModal.tsx` | O valor so editava clicando no numero, sem afordancia |
+| 17 | 22/09/2026 | `sw.js` e `manifest.json` fora do proxy de autenticacao | `proxy.ts` | Os dois caiam no matcher e viravam 307 para `/login` sem sessao. O browser recusa redirect em script de service worker, entao o SW nao conseguia se atualizar e seguia servindo o shell em cache: depois de cada deploy o app aparecia quebrado. O manifest do PWA quebrava pelo mesmo motivo. **Bug existe no upstream** |
 
 ## Planejado (ver docs privados em mau288/arkacademy-crm-docs)
 - Provedor WhatsApp **uazapi** (`lib/messaging/providers/whatsapp/uazapi.provider.ts` + Factory + modal + edge function)
