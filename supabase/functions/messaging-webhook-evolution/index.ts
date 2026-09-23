@@ -29,6 +29,11 @@ interface EvolutionMessageKey {
   remoteJid: string;
   id: string;
   fromMe: boolean;
+  /** Evolution >= 2.3: quando remoteJid e um @lid, o numero real vem aqui (xxx@s.whatsapp.net) */
+  remoteJidAlt?: string;
+  /** Variante usada por algumas versoes: numero real do remetente */
+  senderPn?: string;
+  addressingMode?: string;
 }
 
 interface EvolutionMessageContent {
@@ -145,14 +150,19 @@ async function timingSafeEqual(a: string, b: string): Promise<boolean> {
 /**
  * Normalize remoteJid to a clean phone number.
  * Handles @s.whatsapp.net and @lid suffixes.
- * Falls back to senderPn when @lid is detected (Evolution bug).
+ *
+ * ARK: o WhatsApp passou a identificar parte dos contatos por LID (ex.: 185851908755616@lid)
+ * em vez do telefone. Na Evolution 2.3.x o numero real vem em key.remoteJidAlt (ou key.senderPn).
+ * O codigo original lia data.senderPn (nivel errado do payload), entao o LID virava "telefone"
+ * e cada contato ganhava uma segunda conversa com id inutil. Sem alternativa conhecida, mantem o
+ * LID (nao perde mensagem) e avisa no log.
  */
-function normalizeRemoteJid(remoteJid: string, senderPn?: string): string | null {
+function normalizeRemoteJid(remoteJid: string, altJid?: string): string | null {
   if (!remoteJid) return null;
-  // @lid bug: Evolution às vezes retorna lid em vez do número real
-  if (remoteJid.includes("@lid") && senderPn) {
-    const digits = senderPn.replace(/\D/g, "");
-    return digits ? `+${digits}` : null;
+  if (remoteJid.includes("@lid")) {
+    const alt = altJid ? altJid.split("@")[0].replace(/\D/g, "") : "";
+    if (alt) return `+${alt}`;
+    console.warn(`[Evolution] @lid sem remoteJidAlt/senderPn — usando o LID como id: ${remoteJid}`);
   }
   const phone = remoteJid.split("@")[0];
   const digits = phone.replace(/\D/g, "");
@@ -513,8 +523,8 @@ async function handleMessagesUpsert(
   const isFromMe = data.key.fromMe === true;
   const direction = isFromMe ? "outbound" : "inbound";
 
-  // Pass senderPn for @lid fallback (Evolution bug workaround)
-  const phone = normalizeRemoteJid(remoteJid, data.senderPn);
+  // @lid: o numero real vem em key.remoteJidAlt (Evolution 2.3.x) ou key.senderPn
+  const phone = normalizeRemoteJid(remoteJid, data.key.remoteJidAlt || data.key.senderPn || data.senderPn);
   if (!phone) {
     console.warn(`[Evolution] Could not normalize remoteJid: ${remoteJid}`);
     return;
@@ -523,7 +533,9 @@ async function handleMessagesUpsert(
   const externalMessageId = data.key.id;
   const { contentType, content } = extractMessageContent(data);
   const messageText = extractMessageText(data); // for last_message_preview only
-  const pushName = data.pushName;
+  // Em mensagem fromMe o pushName e o NOSSO nome (o do chip), nao o do contato.
+  // Usar ele como nome do contato batizava leads com "Suporte Comunidade Galera 4.0".
+  const pushName = isFromMe ? undefined : data.pushName;
   const timestamp = data.messageTimestamp
     ? new Date(data.messageTimestamp * 1000)
     : new Date();
@@ -531,7 +543,7 @@ async function handleMessagesUpsert(
   // Find existing conversation
   const { data: existingConv, error: convFindErr } = await supabase
     .from("messaging_conversations")
-    .select("id, contact_id")
+    .select("id, contact_id, external_contact_name")
     .eq("channel_id", channel.id)
     .eq("external_contact_id", phone)
     .maybeSingle();
@@ -544,6 +556,14 @@ async function handleMessagesUpsert(
   if (existingConv) {
     conversationId = existingConv.id;
     contactId = existingConv.contact_id;
+    // Conversa criada a partir de uma mensagem nossa nasce sem nome real; a primeira
+    // mensagem do contato corrige (so quando o nome atual e o telefone).
+    if (pushName && existingConv.external_contact_name === phone) {
+      await supabase
+        .from("messaging_conversations")
+        .update({ external_contact_name: pushName })
+        .eq("id", conversationId);
+    }
   } else {
     // Find or create contact
     const { data: existingContact, error: contactLookupErr } = await supabase
