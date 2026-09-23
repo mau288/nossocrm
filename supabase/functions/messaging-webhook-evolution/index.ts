@@ -169,6 +169,78 @@ function normalizeRemoteJid(remoteJid: string, altJid?: string): string | null {
   return digits ? `+${digits}` : null;
 }
 
+// =============================================================================
+// MEDIA (ARK)
+// =============================================================================
+// O webhook chega sem o arquivo (base64:false). Para audio/imagem/video/documento/
+// sticker buscamos o binario na propria Evolution (getBase64FromMediaMessage) e
+// guardamos no bucket publico `messaging-media`, no formato que a UI ja espera
+// (mediaUrl, mimeType, fileName, fileSize, duration). Falha aqui nao derruba a
+// mensagem: ela fica gravada e a midia simplesmente nao aparece (com warn no log).
+
+const MEDIA_CONTENT_TYPES = new Set(["audio", "image", "video", "document", "sticker"]);
+
+const EXT_BY_MIME: Record<string, string> = {
+  "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/aac": "aac", "audio/amr": "amr",
+  "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+  "video/mp4": "mp4", "video/3gpp": "3gp", "application/pdf": "pdf", "text/plain": "txt", "text/csv": "csv",
+};
+
+async function fetchAndStoreEvolutionMedia(
+  supabase: ReturnType<typeof createClient>,
+  credentials: Record<string, string> | null | undefined,
+  organizationId: string,
+  data: EvolutionMessageData,
+): Promise<Record<string, unknown> | null> {
+  const serverUrl = (credentials?.serverUrl ?? "").replace(/\/+$/, "");
+  const instance = credentials?.instanceName ?? "";
+  const apiKey = credentials?.apiKey ?? "";
+  if (!serverUrl || !instance || !apiKey) {
+    console.warn("[Evolution] Canal sem credenciais completas — midia nao baixada");
+    return null;
+  }
+
+  const resp = await fetch(`${serverUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instance)}`, {
+    method: "POST",
+    headers: { apikey: apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ message: { key: { id: data.key.id } }, convertToMp4: false }),
+  });
+  if (!resp.ok) {
+    console.warn(`[Evolution] getBase64FromMediaMessage ${resp.status} para ${data.key.id}`);
+    return null;
+  }
+  const media = await resp.json() as { base64?: string; mimetype?: string; fileName?: string; size?: { fileLength?: { low?: number } } };
+  if (!media.base64) return null;
+
+  const mimeType = (media.mimetype || "application/octet-stream").split(";")[0].trim();
+  const binary = atob(media.base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  const fromName = media.fileName && media.fileName.includes(".") ? media.fileName.split(".").pop() : undefined;
+  const ext = (fromName || EXT_BY_MIME[mimeType] || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const path = `${organizationId}/evolution/${data.key.id}.${ext}`;
+
+  const { error: upErr } = await supabase.storage
+    .from("messaging-media")
+    .upload(path, bytes, { contentType: mimeType, upsert: true });
+  if (upErr) {
+    console.warn(`[Evolution] Upload da midia falhou (${mimeType}): ${upErr.message}`);
+    return null;
+  }
+  const { data: pub } = supabase.storage.from("messaging-media").getPublicUrl(path);
+
+  const audio = data.message?.audioMessage as Record<string, unknown> | undefined;
+  const seconds = typeof audio?.seconds === "number" ? audio.seconds : undefined;
+  return {
+    mediaUrl: pub.publicUrl,
+    mimeType,
+    fileName: media.fileName || `${data.key.id}.${ext}`,
+    ...(media.size?.fileLength?.low ? { fileSize: media.size.fileLength.low } : {}),
+    ...(seconds !== undefined ? { duration: seconds } : {}),
+  };
+}
+
 /**
  * Extract text preview from Evolution API message by messageType.
  * Used only for last_message_preview (string field).
@@ -509,6 +581,7 @@ async function handleMessagesUpsert(
     organization_id: string;
     business_unit_id: string;
     external_identifier: string;
+    credentials?: Record<string, string> | null;
   },
   payload: EvolutionUpsertPayload
 ) {
@@ -670,6 +743,23 @@ async function handleMessagesUpsert(
     }
     console.log(`[Evolution] Duplicate message ignored: ${externalMessageId}`);
     return;
+  }
+
+  // ARK: midia entra depois da mensagem (a bolha aparece na hora; o arquivo chega em seguida
+  // pelo UPDATE, que o realtime/polling da tela ja acompanha)
+  if (insertedMsg?.id && MEDIA_CONTENT_TYPES.has(contentType)) {
+    try {
+      const media = await fetchAndStoreEvolutionMedia(supabase, channel.credentials, channel.organization_id, data);
+      if (media) {
+        const { error: mediaErr } = await supabase
+          .from("messaging_messages")
+          .update({ content: { ...content, ...media } })
+          .eq("id", insertedMsg.id);
+        if (mediaErr) console.warn("[Evolution] Falha ao gravar midia na mensagem:", mediaErr.message);
+      }
+    } catch (e) {
+      console.warn("[Evolution] Erro ao baixar midia:", e instanceof Error ? e.message : e);
+    }
   }
 
   // Update conversation — only reopen (status: open) for inbound messages
