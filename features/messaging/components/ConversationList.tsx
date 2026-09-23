@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, memo } from 'react';
-import { Search, Filter, Inbox, CheckCircle, X } from 'lucide-react';
+import { Search, Filter, Inbox, CheckCircle, X, RefreshCw } from 'lucide-react';
+import { useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
+import { queryKeys } from '@/lib/query';
 import { ConversationItem } from './ConversationItem';
 import { ChannelIndicator } from './ChannelIndicator';
 import { useConversations } from '@/lib/query/hooks/useConversationsQuery';
@@ -63,6 +65,17 @@ export const ConversationList = memo(function ConversationList({
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
+  // Botao "Atualizar": recarrega lista, thread aberta e contador da barra lateral.
+  // useIsFetching gira o icone enquanto qualquer query de conversas estiver em voo.
+  const queryClient = useQueryClient();
+  const refreshing = useIsFetching({ queryKey: queryKeys.messagingConversations.all }) > 0;
+  const handleRefresh = useCallback(() => {
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.messagingMessages.all }),
+    ]);
+  }, [queryClient]);
+
   const filters: ConversationFilters = useMemo(() => ({
     status: statusFilter,
     businessUnitId,
@@ -98,6 +111,17 @@ export const ConversationList = memo(function ConversationList({
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
             Conversas
           </h2>
+          <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-2 rounded-lg transition-colors text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-600 dark:hover:text-white disabled:opacity-60"
+            title="Atualizar conversas"
+            aria-label="Atualizar conversas"
+          >
+            <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
+          </button>
           <button
             type="button"
             onClick={() => setShowFilters(!showFilters)}
@@ -118,6 +142,7 @@ export const ConversationList = memo(function ConversationList({
               </span>
             )}
           </button>
+          </div>
         </div>
 
         {/* Search */}

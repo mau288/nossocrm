@@ -16,6 +16,7 @@ import {
 import { useUIState } from '@/store/uiState';
 import { useActiveProducts } from '@/lib/query/hooks/useProductsQuery';
 import { useAuth } from '@/context/AuthContext';
+import { useOrgMembersQuery } from '@/lib/query/hooks/useOrgMembersQuery';
 import { useToast } from '@/context/ToastContext';
 import DealFinanceiroSection from './DealFinanceiroSection';
 // Radix AlertDialog (ConfirmDialog) fica sem eventos quando aninhado no Modal legado
@@ -90,6 +91,7 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   const isMobile = mode === 'mobile';
 
   const updateDealMutation = useUpdateDeal();
+  const { data: orgMembers = [] } = useOrgMembersQuery();
   const deleteDealMutation = useDeleteDeal();
   const addDealItemMutation = useAddDealItem();
   const removeDealItemMutation = useRemoveDealItem();
@@ -713,6 +715,21 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
                 <div className="pt-4 border-t border-slate-100 dark:border-white/5">
                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Detalhes</h3>
                   <div className="space-y-2">
+                    <div className="flex justify-between items-center gap-2 text-sm">
+                      <span className="text-slate-500">Responsável</span>
+                      <select
+                        value={deal.ownerId ?? ''}
+                        onChange={(e) => { void updateDeal(deal.id, { ownerId: e.target.value }); }}
+                        className="max-w-[60%] text-sm bg-transparent text-slate-900 dark:text-white border border-slate-200 dark:border-white/10 rounded px-2 py-1 outline-none focus:ring-2 focus:ring-primary-500"
+                        aria-label="Responsável pelo negócio"
+                        title="Quem fez a venda — conta no Top Vendedores"
+                      >
+                        <option value="">Sem dono</option>
+                        {orgMembers.map((m) => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500">Prioridade</span>
                       <span className="text-slate-900 dark:text-white">

@@ -19,6 +19,7 @@ import { queryKeys } from '../index';
 import { supabase } from '@/lib/supabase';
 import { sanitizePostgrestValue } from '@/lib/utils/sanitize';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
 import type {
   DbMessagingConversation,
   MessagingConversation,
@@ -161,6 +162,11 @@ export function useConversations(filters?: ConversationFilters) {
       return result;
     },
     staleTime: 30 * 1000, // 30 seconds
+    // Rede de seguranca: o realtime e o caminho principal, mas quando o canal cai ou o evento
+    // e filtrado a lista ficava parada ate um F5. Polling em segundo plano + refetch ao voltar
+    // pra aba garantem que nada fica mais de ~20 s desatualizado.
+    refetchInterval: 20 * 1000,
+    refetchOnWindowFocus: true,
     enabled: !authLoading && !!user && !!profile?.organization_id,
     placeholderData: keepPreviousData,
     // Filter out conversations being deleted so stale refetches from other
@@ -231,6 +237,7 @@ export function useConversation(conversationId: string | undefined) {
       };
     },
     staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
     enabled: !authLoading && !!user && !!conversationId,
   });
 }
@@ -350,16 +357,22 @@ export function useUpdateConversation() {
  */
 export function useMarkConversationRead() {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
 
   return useMutation({
     mutationFn: async (conversationId: string) => {
-      const { error } = await supabase
-        .from('messaging_conversations')
-        .update({ unread_count: 0 })
-        .eq('id', conversationId);
+      // RPC SECURITY DEFINER (ja existia no banco). O UPDATE direto na tabela nunca chegou a
+      // zerar o badge em producao e falhava em silencio; a RPC nao depende de RLS e o erro
+      // (se houver) agora aparece no toast.
+      const { error } = await supabase.rpc('mark_conversation_read', {
+        p_conversation_id: conversationId,
+      });
 
       if (error) throw error;
       return conversationId;
+    },
+    onError: (error) => {
+      addToast(`Nao consegui marcar a conversa como lida: ${(error as Error).message}`, 'error');
     },
     onMutate: async (conversationId) => {
       await queryClient.cancelQueries({

@@ -918,26 +918,58 @@ export function useRealtimeSync(
     // Delay subscription slightly to avoid race condition with previous channel
     // removal in React StrictMode (unmount → remount happens synchronously, but
     // Supabase removeChannel is async on the server side).
-    const subscribeTimer = setTimeout(() => {
-      channel.subscribe((status) => {
-        if (DEBUG_REALTIME) {
-          console.log(`[Realtime] Channel ${channelName} status:`, status);
-        }
-
-        isConnectedRef.current = status === 'SUBSCRIBED';
-
-        if (status === 'SUBSCRIBED') {
-          console.log(`[Realtime] ✅ Connected to ${tableList.join(', ')}`);
-        } else if (status === 'CHANNEL_ERROR') {
-          console.warn(`[Realtime] Channel error for ${channelName} (will auto-retry)`);
-        } else if (status === 'TIMED_OUT') {
-          console.warn(`[Realtime] Channel timeout for ${channelName}`);
-        } else if (status === 'CLOSED') {
-          if (DEBUG_REALTIME) {
-            console.warn(`[Realtime] Channel closed for ${channelName}`);
-          }
-        }
+    // Queda do canal: tudo que o Postgres emitiu enquanto o socket estava fora nunca vai ser
+    // entregue. Ao voltar a SUBSCRIBED depois de uma queda, invalidamos as queries das tabelas
+    // assinadas (catch-up). Se o canal fechar de vez (CLOSED sem ser pelo nosso cleanup),
+    // tentamos assinar de novo em 3 s — o realtime-js so re-tenta sozinho em CHANNEL_ERROR/TIMED_OUT.
+    let hadDropped = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const catchUp = () => {
+      tableList.forEach((table) => {
+        getTableQueryKeys(table).forEach((queryKey) => {
+          queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
+        });
       });
+    };
+    const onStatus = (status: string) => {
+      if (DEBUG_REALTIME) {
+        console.log(`[Realtime] Channel ${channelName} status:`, status);
+      }
+
+      isConnectedRef.current = status === 'SUBSCRIBED';
+
+      if (status === 'SUBSCRIBED') {
+        console.log(`[Realtime] ✅ Connected to ${tableList.join(', ')}`);
+        if (hadDropped) {
+          hadDropped = false;
+          console.log(`[Realtime] 🔄 Reconnected - catching up ${tableList.join(', ')}`);
+          catchUp();
+        }
+      } else if (status === 'CHANNEL_ERROR') {
+        hadDropped = true;
+        console.warn(`[Realtime] Channel error for ${channelName} (will auto-retry)`);
+      } else if (status === 'TIMED_OUT') {
+        hadDropped = true;
+        console.warn(`[Realtime] Channel timeout for ${channelName}`);
+      } else if (status === 'CLOSED') {
+        // channelRef.current !== channel significa que fomos nos (cleanup) — nao re-assinar.
+        if (channelRef.current === channel) {
+          hadDropped = true;
+          console.warn(`[Realtime] Channel closed for ${channelName} — resubscribing in 3s`);
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = setTimeout(() => {
+            if (channelRef.current === channel) {
+              channel.subscribe(onStatus);
+            }
+          }, 3000);
+        } else if (DEBUG_REALTIME) {
+          console.warn(`[Realtime] Channel closed for ${channelName}`);
+        }
+      }
+    };
+
+    const subscribeTimer = setTimeout(() => {
+      channel.subscribe(onStatus);
     }, 100);
 
     channelRef.current = channel;
@@ -945,6 +977,7 @@ export function useRealtimeSync(
     // Cleanup (detach-and-forget: null ref immediately, remove async)
     return () => {
       clearTimeout(subscribeTimer);
+      if (retryTimer) clearTimeout(retryTimer);
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }

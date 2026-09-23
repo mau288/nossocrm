@@ -110,7 +110,7 @@ const ReportsPage: React.FC = () => {
     const repsMap: Record<string, { name: string; avatar: string; deals: number; revenue: number; winRate: number }> = {};
 
     wonDeals.forEach(deal => {
-      const ownerKey = deal.owner?.name || 'unknown';
+      const ownerKey = deal.ownerId || 'sem-dono';
       const ownerName = deal.owner?.name || 'Sem Dono';
       const ownerAvatar = deal.owner?.avatar || '';
 

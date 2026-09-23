@@ -148,7 +148,28 @@ export interface DbDealItem {
  */
 interface DbDealWithItems extends DbDeal {
   deal_items: DbDealItem[];
+  /** Embed `owner:profiles!owner_id` — resolve o nome do responsavel numa query so. */
+  owner?: DbDealOwner | null;
 }
+
+interface DbDealOwner {
+  id: string;
+  name: string | null;
+  nickname: string | null;
+  first_name: string | null;
+  avatar_url: string | null;
+}
+
+/** Embed usado em getAll/getById. A FK deals.owner_id -> profiles(id) existe no schema. */
+const OWNER_EMBED = 'owner:profiles!owner_id (id, name, nickname, first_name, avatar_url)';
+
+const transformOwner = (owner: DbDealOwner | null | undefined): Deal['owner'] => {
+  if (!owner) return { name: 'Sem Dono', avatar: '' };
+  return {
+    name: owner.nickname || owner.first_name || owner.name || 'Sem nome',
+    avatar: owner.avatar_url || '',
+  };
+};
 
 const transformDeal = (db: DbDeal | DbDealWithItems, items?: DbDealItem[]): Deal => {
   // Usar stage_id como status (UUID do estágio no kanban)
@@ -198,7 +219,7 @@ const transformDeal = (db: DbDeal | DbDealWithItems, items?: DbDealItem[]): Deal
       quantity: i.quantity,
       price: i.price,
     })),
-    owner: { name: 'Sem Dono', avatar: '' }, // Will be enriched later
+    owner: transformOwner('owner' in db ? db.owner : null),
     ownerId: db.owner_id || undefined,
   };
 };
@@ -286,7 +307,8 @@ export const dealsService = {
         .from('deals')
         .select(`
           *,
-          deal_items (*)
+          deal_items (*),
+          ${OWNER_EMBED}
         `);
       if (options?.signal) dealsQuery = dealsQuery.abortSignal(options.signal);
       const { data, error } = await dealsQuery
@@ -314,13 +336,13 @@ export const dealsService = {
         return { data: null, error: new Error('Supabase não configurado') };
       }
       const [dealResult, itemsResult] = await Promise.all([
-        supabase.from('deals').select('*').eq('id', id).maybeSingle(),
+        supabase.from('deals').select(`*, ${OWNER_EMBED}`).eq('id', id).maybeSingle(),
         supabase.from('deal_items').select('id, organization_id, deal_id, product_id, name, quantity, price, unit, discount, total, created_at, updated_at').eq('deal_id', id),
       ]);
 
       if (dealResult.error) return { data: null, error: dealResult.error };
 
-      const deal = transformDeal(dealResult.data as DbDeal, (itemsResult.data || []) as DbDealItem[]);
+      const deal = transformDeal(dealResult.data as DbDealWithItems, (itemsResult.data || []) as DbDealItem[]);
       return { data: deal, error: null };
     } catch (e) {
       return { data: null, error: e as Error };
@@ -398,6 +420,14 @@ export const dealsService = {
         };
       }
 
+      // Dono padrao = quem esta criando. Negocio vindo de webhook/n8n (service role) nao tem
+      // usuario logado e fica sem dono ate alguem marcar ganho ou atribuir no card.
+      let ownerId = sanitizeUUID(deal.ownerId);
+      if (!ownerId) {
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        ownerId = currentUser?.id ?? null;
+      }
+
       const insertData = {
         organization_id: organizationId,
         title: deal.title,
@@ -411,7 +441,7 @@ export const dealsService = {
         client_company_id: sanitizeUUID(deal.clientCompanyId || deal.companyId),
         tags: deal.tags || [],
         custom_fields: deal.customFields || {},
-        owner_id: sanitizeUUID(deal.ownerId),
+        owner_id: ownerId,
         // Importante: deals legados podem ficar com is_won/is_lost = NULL se o schema
         // estiver permissivo ou se defaults não estiverem aplicados. Forçamos valores
         // explícitos para evitar que deals "abertos" sumam de queries que filtram por FALSE.
