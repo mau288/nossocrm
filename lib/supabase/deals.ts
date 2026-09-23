@@ -157,16 +157,21 @@ interface DbDealOwner {
   name: string | null;
   nickname: string | null;
   first_name: string | null;
+  last_name: string | null;
   avatar_url: string | null;
 }
 
 /** Embed usado em getAll/getById. A FK deals.owner_id -> profiles(id) existe no schema. */
-const OWNER_EMBED = 'owner:profiles!owner_id (id, name, nickname, first_name, avatar_url)';
+const OWNER_EMBED = 'owner:profiles!owner_id (id, name, nickname, first_name, last_name, avatar_url)';
+
+/** Nome de exibicao do usuario: apelido > nome + sobrenome > nome do cadastro (costuma ser o e-mail). */
+export const displayNameFromProfile = (p: { nickname?: string | null; first_name?: string | null; last_name?: string | null; name?: string | null }): string =>
+  p.nickname || [p.first_name, p.last_name].filter(Boolean).join(' ') || p.name || 'Sem nome';
 
 const transformOwner = (owner: DbDealOwner | null | undefined): Deal['owner'] => {
   if (!owner) return { name: 'Sem Dono', avatar: '' };
   return {
-    name: owner.nickname || owner.first_name || owner.name || 'Sem nome',
+    name: displayNameFromProfile(owner),
     avatar: owner.avatar_url || '',
   };
 };

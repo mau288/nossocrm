@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { queryKeys } from '../queryKeys';
 import { supabase } from '@/lib/supabase';
+import { displayNameFromProfile } from '@/lib/supabase/deals';
 
 export interface OrgMember {
   id: string;
@@ -26,14 +27,15 @@ export function useOrgMembersQuery() {
     queryFn: async (): Promise<OrgMember[]> => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, name')
+        .select('id, name, nickname, first_name, last_name')
         .eq('organization_id', orgId!)
         .order('name');
 
       if (error) throw error;
+      // Mesma regra de nome do card/relatorio: apelido > nome + sobrenome > nome do cadastro
       return (data ?? []).map((p) => ({
         id: p.id,
-        name: p.name ?? 'Sem nome',
+        name: displayNameFromProfile(p),
       }));
     },
     enabled: !!orgId,
