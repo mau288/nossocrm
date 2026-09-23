@@ -174,8 +174,11 @@ const transformStage = (db: DbBoardStage): BoardStage => ({
  * @returns Board no formato da aplicação.
  */
 const transformBoard = (db: DbBoard, stages: DbBoardStage[]): Board => {
-  const goal: BoardGoal | undefined = db.goal_description ? {
-    description: db.goal_description,
+  // ARK: a meta existe se qualquer campo dela foi preenchido. O upstream exigia a descricao
+  // ("Por que essa meta existe?"), entao valor + KPI salvos sem descricao viravam "Meta nao configurada".
+  const hasGoal = Boolean(db.goal_description || db.goal_kpi || db.goal_target_value);
+  const goal: BoardGoal | undefined = hasGoal ? {
+    description: db.goal_description || '',
     kpi: db.goal_kpi || '',
     targetValue: db.goal_target_value || '',
     type: (db.goal_type as BoardGoal['type']) || undefined,

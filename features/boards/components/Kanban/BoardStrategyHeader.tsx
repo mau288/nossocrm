@@ -37,7 +37,7 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
 
   // Calculate Progress Automatically
   const calculatedProgress = React.useMemo(() => {
-    const type = board.goal?.type || 'number';
+    const type = board.goal?.type || 'currency';
 
     /**
      * Performance: avoid `deals.filter(...)` + extra passes over the boardDeals.
@@ -118,7 +118,9 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
     updateBoardMutation.mutate({
       id: board.id,
       updates: {
-        goal: editedBoard.goal,
+        // Grava o tipo que esta na tela mesmo sem o usuario tocar no dropdown
+        // (antes ia NULL e cada tela assumia um padrao diferente).
+        goal: editedBoard.goal ? { ...editedBoard.goal, type: editedBoard.goal.type || 'currency' } : undefined,
         agentPersona: editedBoard.agentPersona,
         entryTrigger: editedBoard.entryTrigger,
         nextBoardId: editedBoard.nextBoardId,
@@ -229,7 +231,7 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
                         />
                         <select
                           className="bg-transparent text-[10px] font-bold uppercase text-slate-400 focus:text-blue-500 focus:outline-none cursor-pointer"
-                          value={editedBoard.goal?.type || 'number'}
+                          value={editedBoard.goal?.type || 'currency'}
                           onChange={e =>
                             setEditedBoard({
                               ...editedBoard,
