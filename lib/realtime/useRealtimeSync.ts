@@ -205,6 +205,9 @@ export function useRealtimeSync(
                   ...(db.error_message != null && { errorMessage: db.error_message as string }),
                   // Include metadata so reaction updates (metadata.reactions) propagate to the UI
                   ...(db.metadata != null && { metadata: db.metadata as Record<string, unknown> }),
+                  // ARK: a midia (mediaUrl) chega por UPDATE logo depois do INSERT — sem isso a
+                  // bolha de audio/imagem so ganhava o arquivo no proximo refetch
+                  ...(db.content != null && { content: db.content as MessagingMessage['content'] }),
                 };
 
                 const applyPatch = (m: MessagingMessage) =>
