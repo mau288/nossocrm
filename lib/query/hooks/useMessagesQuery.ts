@@ -95,5 +95,9 @@ export function useMessagesInfinite(conversationId: string | undefined) {
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: !authLoading && !!user && !!conversationId,
     staleTime: 30 * 1000,
+    // Rede de seguranca do realtime (ver useConversations): a thread aberta se atualiza sozinha
+    // mesmo se o WebSocket cair. So as paginas ja carregadas sao refeitas.
+    refetchInterval: 12 * 1000,
+    refetchOnWindowFocus: true,
   });
 }
