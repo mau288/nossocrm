@@ -270,12 +270,21 @@ export function ContactsImportExportModal(props: {
             <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
               Arquivo CSV
             </label>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={e => setFile(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-slate-600 dark:text-slate-300"
-            />
+            {/* ARK: o <input type=file> cru passava despercebido; vira botao no estilo do "Baixar template" */}
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="px-3 py-2 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-semibold flex items-center gap-2 cursor-pointer hover:opacity-90">
+                <FileDown size={16} /> {file ? 'Trocar arquivo' : 'Escolher arquivo CSV'}
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={e => setFile(e.target.files?.[0] ?? null)}
+                  className="sr-only"
+                />
+              </label>
+              <span className={file ? 'text-sm text-slate-900 dark:text-white font-medium' : 'text-sm text-slate-500'}>
+                {file ? file.name : 'Nenhum arquivo escolhido — o botão Importar acende depois de escolher'}
+              </span>
+            </div>
           </div>
 
           <div className="space-y-2">
