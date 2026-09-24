@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { MessageSquare, User, CheckCircle, MoreVertical, LinkIcon, Trash2, RotateCcw, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,8 @@ import { ContactPanel } from './components/ContactPanel';
 import { ContactLinkModal } from './components/Modals/ContactLinkModal';
 import { SendToFunnelModal } from './components/Modals/SendToFunnelModal';
 import { PullToWhatsAppModal } from './components/Modals/PullToWhatsAppModal';
+import { NewConversationModal } from './components/Modals/NewConversationModal';
+import { normalizePhoneE164 } from '@/lib/phone';
 import { ChannelIndicator } from './components/ChannelIndicator';
 import { WindowExpiryBadge } from './components/WindowExpiryBadge';
 import { MessageSearchBar } from './components/MessageSearchBar';
@@ -56,6 +58,102 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   const [selectedConversationId, setSelectedConversationId] = useState<string | undefined>(
     initialConversationId || conversationIdParam || undefined
   );
+
+  // ARK: botao "Mensagem" do negocio/contato chega como
+  // /messaging?newConversation=true&contactPhone=...&contactId=...&contactName=...
+  // Regra: se ja existe conversa com esse telefone (qualquer chip), assume a mais recente
+  // (aberta primeiro); senao pergunta o chip e cria a conversa pronta pra mandar mensagem.
+  const wantsNewConversation = searchParams.get('newConversation') === 'true';
+  const newConvPhoneParam = searchParams.get('contactPhone') || '';
+  const newConvContactId = searchParams.get('contactId') || undefined;
+  const newConvContactName = searchParams.get('contactName') || undefined;
+  const [isNewConvModalOpen, setIsNewConvModalOpen] = useState(false);
+  const [newConvPhone, setNewConvPhone] = useState('');
+  const handledNewConvRef = useRef(false);
+
+  const openConversation = useCallback((id: string) => {
+    setSelectedConversationId(id);
+    router.replace(`/messaging?id=${id}`, { scroll: false });
+  }, [router]);
+
+  useEffect(() => {
+    if (!wantsNewConversation || handledNewConvRef.current || !profile?.organization_id) return;
+    handledNewConvRef.current = true;
+    const digits = newConvPhoneParam.replace(/\D/g, '');
+    const phone = normalizePhoneE164(newConvPhoneParam) || (digits ? `+${digits}` : '');
+    if (!phone) {
+      router.replace('/messaging', { scroll: false });
+      return;
+    }
+    (async () => {
+      const { data } = await supabase
+        .from('messaging_conversations')
+        .select('id')
+        .eq('external_contact_id', phone)
+        .order('status', { ascending: true })          // 'open' vem antes de 'resolved'
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        openConversation(data[0].id);
+        return;
+      }
+      setNewConvPhone(phone);
+      setIsNewConvModalOpen(true);
+    })();
+  }, [wantsNewConversation, newConvPhoneParam, profile?.organization_id, router, openConversation]);
+
+  const handleCreateConversation = useCallback(async (params: {
+    channelId: string;
+    phoneNumber: string;
+    contactName?: string;
+    contactId?: string;
+  }) => {
+    if (!profile?.organization_id) throw new Error('Organização não encontrada');
+    const phone = `+${params.phoneNumber.replace(/\D/g, '')}`;
+
+    // Ja existe nesse chip? Assume, mesmo que resolvida (reabre).
+    const { data: existing } = await supabase
+      .from('messaging_conversations')
+      .select('id, status')
+      .eq('channel_id', params.channelId)
+      .eq('external_contact_id', phone)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      if (existing.status !== 'open') {
+        await supabase.from('messaging_conversations').update({ status: 'open' }).eq('id', existing.id);
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all });
+      openConversation(existing.id);
+      return;
+    }
+
+    const { data: channel } = await supabase
+      .from('messaging_channels')
+      .select('business_unit_id')
+      .eq('id', params.channelId)
+      .maybeSingle();
+
+    const { data: created, error } = await supabase
+      .from('messaging_conversations')
+      .insert({
+        organization_id: profile.organization_id,
+        channel_id: params.channelId,
+        business_unit_id: channel?.business_unit_id ?? null,
+        external_contact_id: phone,
+        external_contact_name: params.contactName || newConvContactName || phone,
+        contact_id: params.contactId ?? newConvContactId ?? null,
+        status: 'open',
+        priority: 'normal',
+      })
+      .select('id')
+      .single();
+    if (error) throw error;
+
+    queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all });
+    openConversation(created.id);
+  }, [profile?.organization_id, queryClient, openConversation, newConvContactName, newConvContactId]);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [isFunnelModalOpen, setIsFunnelModalOpen] = useState(false);
   const [isHandoffModalOpen, setIsHandoffModalOpen] = useState(false);
@@ -348,6 +446,18 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
 
       {/* Puxar pro WhatsApp: handoff do Instagram com disparo imediato */}
       {selectedConversation?.contactId && (
+        <NewConversationModal
+          isOpen={isNewConvModalOpen}
+          onClose={() => {
+            setIsNewConvModalOpen(false);
+            if (!selectedConversationId) router.replace('/messaging', { scroll: false });
+          }}
+          onCreateConversation={handleCreateConversation}
+          defaultContactId={newConvContactId}
+          defaultContactName={newConvContactName}
+          defaultContactPhone={newConvPhone}
+        />
+
         <PullToWhatsAppModal
           isOpen={isHandoffModalOpen}
           onClose={() => setIsHandoffModalOpen(false)}
