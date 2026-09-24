@@ -446,18 +446,6 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
 
       {/* Puxar pro WhatsApp: handoff do Instagram com disparo imediato */}
       {selectedConversation?.contactId && (
-        <NewConversationModal
-          isOpen={isNewConvModalOpen}
-          onClose={() => {
-            setIsNewConvModalOpen(false);
-            if (!selectedConversationId) router.replace('/messaging', { scroll: false });
-          }}
-          onCreateConversation={handleCreateConversation}
-          defaultContactId={newConvContactId}
-          defaultContactName={newConvContactName}
-          defaultContactPhone={newConvPhone}
-        />
-
         <PullToWhatsAppModal
           isOpen={isHandoffModalOpen}
           onClose={() => setIsHandoffModalOpen(false)}
@@ -487,6 +475,19 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
           channelName={selectedConversation.channelName}
         />
       )}
+
+      {/* ARK: nova conversa a partir do botao Mensagem (fora do bloco condicional acima) */}
+      <NewConversationModal
+        isOpen={isNewConvModalOpen}
+        onClose={() => {
+          setIsNewConvModalOpen(false);
+          if (!selectedConversationId) router.replace('/messaging', { scroll: false });
+        }}
+        onCreateConversation={handleCreateConversation}
+        defaultContactId={newConvContactId}
+        defaultContactName={newConvContactName}
+        defaultContactPhone={newConvPhone}
+      />
 
       {/* Contact Link Modal */}
       <ContactLinkModal
