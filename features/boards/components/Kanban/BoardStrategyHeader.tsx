@@ -43,36 +43,42 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
      * Performance: avoid `deals.filter(...)` + extra passes over the boardDeals.
      * We scan once and compute the aggregates we need.
      */
-    let dealCount = 0;
+    // ARK: a meta e de GANHOS, igual ao relatorio. O upstream somava todo negocio do funil
+    // (aberto + ganho), entao "20 matriculas" contava lead novo como progresso.
     let wonCount = 0;
-    let totalValue = 0;
+    let lostCount = 0;
+    let wonValue = 0;
     for (const d of deals) {
       if (d.boardId !== board.id) continue;
-      dealCount += 1;
-      totalValue += d.value || 0;
-      if (d.isWon) wonCount += 1;
+      if (d.isWon) {
+        wonCount += 1;
+        wonValue += d.value || 0;
+      } else if (d.isLost) {
+        lostCount += 1;
+      }
     }
 
     if (type === 'currency') {
       return {
-        value: totalValue,
-        display: BRL_CURRENCY_FORMATTER.format(totalValue),
+        value: wonValue,
+        display: BRL_CURRENCY_FORMATTER.format(wonValue),
       };
     }
 
     if (type === 'percentage') {
-      if (dealCount === 0) return { value: 0, display: '0%' };
-      const percent = Math.round((wonCount / dealCount) * 100);
+      const closed = wonCount + lostCount;
+      if (closed === 0) return { value: 0, display: '0%' };
+      const percent = Math.round((wonCount / closed) * 100);
       return {
         value: percent,
         display: `${percent}%`,
       };
     }
 
-    // Default: Number
+    // Default: Number = negocios ganhos
     return {
-      value: dealCount,
-      display: dealCount.toString(),
+      value: wonCount,
+      display: wonCount.toString(),
     };
   }, [deals, board.id, board.goal?.type]);
 
