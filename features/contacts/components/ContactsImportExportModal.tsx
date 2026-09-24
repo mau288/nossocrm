@@ -3,6 +3,7 @@ import { Download, Upload, FileDown } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/context/ToastContext';
 import { stringifyCsv, withUtf8Bom, type CsvDelimiter } from '@/lib/utils/csv';
+import { useBoards } from '@/lib/query/hooks/useBoardsQuery';
 
 type Panel = 'export' | 'import';
 
@@ -63,6 +64,13 @@ export function ContactsImportExportModal(props: {
     'upsert_by_email'
   );
   const [createCompanies, setCreateCompanies] = useState(true);
+  // ARK: tags para todos + envio para um funil
+  const [tagsInput, setTagsInput] = useState('');
+  const [sendToBoard, setSendToBoard] = useState(false);
+  const [boardId, setBoardId] = useState('');
+  const [stageId, setStageId] = useState('');
+  const { data: boards = [] } = useBoards();
+  const selectedBoard = boards.find(b => b.id === boardId);
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
 
@@ -145,6 +153,11 @@ export function ContactsImportExportModal(props: {
       fd.append('mode', mode);
       fd.append('createCompanies', String(createCompanies));
       if (delimiter !== 'auto') fd.append('delimiter', delimiter);
+      if (tagsInput.trim()) fd.append('tags', tagsInput.trim());
+      if (sendToBoard && boardId && stageId) {
+        fd.append('boardId', boardId);
+        fd.append('stageId', stageId);
+      }
 
       const res = await fetch('/api/contacts/import', { method: 'POST', body: fd });
       const data = await res.json().catch(() => null);
@@ -154,7 +167,8 @@ export function ContactsImportExportModal(props: {
       setImportResult(data);
       const totals = data?.totals;
       toast?.(
-        `Import concluído: ${totals?.created ?? 0} criados, ${totals?.updated ?? 0} atualizados, ${totals?.skipped ?? 0} ignorados, ${totals?.errors ?? 0} erros.`,
+        `Import concluído: ${totals?.created ?? 0} criados, ${totals?.updated ?? 0} atualizados, ${totals?.skipped ?? 0} ignorados, ${totals?.errors ?? 0} erros` +
+          (totals?.dealsCreated ? `, ${totals.dealsCreated} negócios no funil` : '') + '.',
         (totals?.errors ?? 0) > 0 ? 'warning' : 'success'
       );
     } catch (e) {
@@ -322,6 +336,58 @@ export function ContactsImportExportModal(props: {
             </div>
           </div>
 
+          {/* ARK: tags para todos os importados */}
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+              Tags para todos os importados <span className="font-normal text-slate-400">(opcional, separadas por vírgula)</span>
+            </label>
+            <input
+              type="text"
+              value={tagsInput}
+              onChange={e => setTagsInput(e.target.value)}
+              placeholder="ex.: lista-set26, evento-automacao"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/20 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary-500"
+            />
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Vale para cada contato criado ou atualizado, somando às tags que ele já tinha. O CSV também pode trazer uma coluna{' '}
+              <code className="px-1.5 py-0.5 rounded bg-slate-200/60 dark:bg-white/10">tags</code> por linha.
+            </div>
+          </div>
+
+          {/* ARK: enviar para um funil */}
+          <div className="space-y-2">
+            <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <input type="checkbox" checked={sendToBoard} onChange={e => setSendToBoard(e.target.checked)} className="mt-1" />
+              <span>Enviar os importados para um funil (cria 1 negócio por contato)</span>
+            </label>
+            {sendToBoard && (
+              <div className="pl-7 flex flex-wrap gap-2">
+                <select
+                  value={boardId}
+                  onChange={e => { setBoardId(e.target.value); setStageId(''); }}
+                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/20 text-sm text-slate-900 dark:text-white"
+                  aria-label="Funil"
+                >
+                  <option value="">Funil…</option>
+                  {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <select
+                  value={stageId}
+                  onChange={e => setStageId(e.target.value)}
+                  disabled={!selectedBoard}
+                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/20 text-sm text-slate-900 dark:text-white disabled:opacity-50"
+                  aria-label="Etapa"
+                >
+                  <option value="">Etapa…</option>
+                  {(selectedBoard?.stages || []).map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+                <div className="basis-full text-xs text-slate-500 dark:text-slate-400">
+                  Quem já tiver negócio aberto nesse funil não ganha outro. O negócio nasce com as mesmas tags e com você como responsável.
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="space-y-1">
           <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
             <input
@@ -346,7 +412,7 @@ export function ContactsImportExportModal(props: {
             <button
               type="button"
               onClick={() => void handleImport()}
-              disabled={!file || isImporting}
+              disabled={!file || isImporting || (sendToBoard && !(boardId && stageId))}
               className={`px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 ${
                 !file || isImporting
                   ? 'bg-slate-200 dark:bg-white/10 text-slate-400 cursor-not-allowed'
@@ -364,6 +430,10 @@ export function ContactsImportExportModal(props: {
                 {importResult.totals?.updated ?? 0} atualizados •{' '}
                 {importResult.totals?.skipped ?? 0} ignorados •{' '}
                 {importResult.totals?.errors ?? 0} erros
+                {typeof importResult.totals?.dealsCreated === 'number' && (
+                  <> • {importResult.totals.dealsCreated} negócios criados no funil
+                  {importResult.totals?.dealsSkipped ? ` (${importResult.totals.dealsSkipped} já tinham negócio aberto)` : ''}</>
+                )}
               </div>
               {(importResult.totals?.errors ?? 0) > 0 && (
                 <button

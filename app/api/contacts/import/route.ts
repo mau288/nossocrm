@@ -34,7 +34,26 @@ type ParsedRow = {
   status?: string;
   stage?: string;
   notes?: string;
+  /** ARK: coluna opcional "tags" (separadas por virgula ou ;) */
+  tags?: string[];
 };
+
+/** "a, b ; c" -> ["a","b","c"] sem repetidos, ate 40 chars cada */
+function splitTags(v: string | undefined | null): string[] {
+  if (!v) return [];
+  const out: string[] = [];
+  for (const raw of v.split(/[,;|]/)) {
+    const t = raw.trim().slice(0, 40);
+    if (t && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  }
+  return out;
+}
+
+function unionTags(...lists: Array<string[] | null | undefined>): string[] {
+  const out: string[] = [];
+  for (const l of lists) for (const t of l || []) if (t && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  return out;
+}
 
 const HEADER_SYNONYMS: Record<keyof ParsedRow, string[]> = {
   name: ['name', 'nome', 'nome completo', 'full name'],
@@ -47,6 +66,7 @@ const HEADER_SYNONYMS: Record<keyof ParsedRow, string[]> = {
   status: ['status'],
   stage: ['stage', 'etapa', 'lifecycle stage', 'ciclo de vida', 'pipeline stage'],
   notes: ['notes', 'nota', 'notas', 'observacoes', 'observações', 'obs'],
+  tags: ['tags', 'tag', 'etiquetas', 'etiqueta'],
 };
 
 function buildHeaderIndex(headers: string[]) {
@@ -73,6 +93,7 @@ function buildHeaderIndex(headers: string[]) {
     status: find(HEADER_SYNONYMS.status),
     stage: find(HEADER_SYNONYMS.stage),
     notes: find(HEADER_SYNONYMS.notes),
+    tags: find(HEADER_SYNONYMS.tags),
   };
 
   return mapping;
@@ -112,6 +133,17 @@ export async function POST(req: Request) {
     const modeRaw = form.get('mode');
     const delimiterRaw = form.get('delimiter');
     const createCompanies = BooleanStringSchema.parse(String(form.get('createCompanies') ?? 'true'));
+
+    // ARK: tags para todos os importados + envio opcional para um funil (cria 1 negocio por contato)
+    const globalTags = splitTags(String(form.get('tags') ?? ''));
+    const boardIdRaw = String(form.get('boardId') ?? '').trim();
+    const stageIdRaw = String(form.get('stageId') ?? '').trim();
+    const uuid = z.string().uuid();
+    const boardId = boardIdRaw && uuid.safeParse(boardIdRaw).success ? boardIdRaw : null;
+    const stageId = stageIdRaw && uuid.safeParse(stageIdRaw).success ? stageIdRaw : null;
+    if ((boardIdRaw || stageIdRaw) && !(boardId && stageId)) {
+      return NextResponse.json({ error: 'Funil/etapa inválidos.' }, { status: 400 });
+    }
 
     const modeResult = ImportModeSchema.safeParse(String(modeRaw ?? 'upsert_by_email'));
     if (!modeResult.success) {
@@ -171,6 +203,7 @@ export async function POST(req: Request) {
           status: normalizeStatus(getCell(r, mapping.status)),
           stage: normalizeStage(getCell(r, mapping.stage)),
           notes: getCell(r, mapping.notes),
+          tags: splitTags(getCell(r, mapping.tags)),
         },
       });
     }
@@ -204,6 +237,16 @@ export async function POST(req: Request) {
     }
 
     const orgId = profile.organization_id;
+
+    if (boardId && stageId) {
+      const { data: boardRow } = await supabase
+        .from('boards').select('id').eq('id', boardId).eq('organization_id', orgId).is('deleted_at', null).maybeSingle();
+      const { data: stageRow } = await supabase
+        .from('board_stages').select('id').eq('id', stageId).eq('board_id', boardId).maybeSingle();
+      if (!boardRow || !stageRow) {
+        return NextResponse.json({ error: 'Funil ou etapa não encontrados nesta organização.' }, { status: 400 });
+      }
+    }
 
     // Companies: preload and optionally create missing ones
     const { data: companies, error: companiesError } = await supabase
@@ -255,25 +298,27 @@ export async function POST(req: Request) {
     );
 
     const contactIdsByEmail = new Map<string, string[]>();
+    const existingTagsById = new Map<string, string[]>();
     if (emails.length) {
       const chunkSize = 500;
       for (let i = 0; i < emails.length; i += chunkSize) {
         const chunk = emails.slice(i, i + chunkSize);
         const { data: existing, error: existingError } = await supabase
           .from('contacts')
-          .select('id,email')
+          .select('id,email,tags')
           .in('email', chunk)
           .is('deleted_at', null);
 
         if (existingError) {
           return NextResponse.json({ error: existingError.message }, { status: 400 });
         }
-        for (const c of (existing || []) as Array<{ id: string; email: string | null }>) {
+        for (const c of (existing || []) as Array<{ id: string; email: string | null; tags: string[] | null }>) {
           const em = (c.email || '').toLowerCase().trim();
           if (!em) continue;
           const arr = contactIdsByEmail.get(em) || [];
           arr.push(c.id);
           contactIdsByEmail.set(em, arr);
+          existingTagsById.set(c.id, c.tags || []);
         }
       }
     }
@@ -282,12 +327,18 @@ export async function POST(req: Request) {
     let updated = 0;
     let skipped = 0;
 
+    // Contatos que passaram pela importacao (criados ou atualizados) -> candidatos a negocio no funil
+    const touched: Array<{ id: string; name: string; tags: string[] }> = [];
+
     // Import in manageable chunks to reduce payload sizes
     const insertBatch: Array<{ rowNumber: number; payload: Record<string, unknown> }> = [];
     const flushInsert = async () => {
       if (!insertBatch.length) return;
       const payloads = insertBatch.map(i => i.payload);
-      const { error: insertError } = await supabase.from('contacts').insert(payloads);
+      const { data: insertedRows, error: insertError } = await supabase
+        .from('contacts')
+        .insert(payloads)
+        .select('id,name,tags');
       if (insertError) {
         // If batch insert fails, mark all rows as errors (keep it simple for v1)
         for (const item of insertBatch) {
@@ -295,6 +346,9 @@ export async function POST(req: Request) {
         }
       } else {
         created += insertBatch.length;
+        for (const c of (insertedRows || []) as Array<{ id: string; name: string; tags: string[] | null }>) {
+          touched.push({ id: c.id, name: c.name, tags: c.tags || [] });
+        }
       }
       insertBatch.length = 0;
     };
@@ -317,6 +371,7 @@ export async function POST(req: Request) {
         stage: p.data.stage || 'LEAD',
         organization_id: orgId,
         updated_at: new Date().toISOString(),
+        tags: unionTags(globalTags, p.data.tags),
       };
 
       const existingIds = email ? (contactIdsByEmail.get(email) || []) : [];
@@ -339,15 +394,18 @@ export async function POST(req: Request) {
           continue;
         }
         const id = existingIds[0];
+        // tags: nunca apaga as que o contato ja tinha
+        const mergedTags = unionTags(existingTagsById.get(id), globalTags, p.data.tags);
         const { error: updateError } = await supabase
           .from('contacts')
-          .update(base)
+          .update({ ...base, tags: mergedTags })
           .eq('id', id);
 
         if (updateError) {
           errors.push({ rowNumber, message: updateError.message });
         } else {
           updated += 1;
+          touched.push({ id, name: base.name, tags: mergedTags });
         }
         continue;
       }
@@ -359,8 +417,55 @@ export async function POST(req: Request) {
 
     await flushInsert();
 
-    // Remove internal field from potential logs; not persisted in DB anyway (supabase ignores unknown)
-    // but we keep it only in memory; ok.
+    // ARK: enviar para o funil — 1 negocio por contato importado, pulando quem ja tem
+    // negocio aberto nesse funil. O dono do negocio vem do trigger (usuario logado).
+    let dealsCreated = 0;
+    let dealsSkipped = 0;
+    if (boardId && stageId && touched.length) {
+      const ids = touched.map(t => t.id);
+      const hasOpen = new Set<string>();
+      for (let i = 0; i < ids.length; i += 500) {
+        const { data: openDeals } = await supabase
+          .from('deals')
+          .select('contact_id')
+          .eq('board_id', boardId)
+          .in('contact_id', ids.slice(i, i + 500))
+          .eq('is_won', false)
+          .eq('is_lost', false);
+        for (const d of (openDeals || []) as Array<{ contact_id: string | null }>) if (d.contact_id) hasOpen.add(d.contact_id);
+      }
+      const seen = new Set<string>();
+      const dealRows = touched
+        .filter(t => !seen.has(t.id) && seen.add(t.id))
+        .filter(t => !hasOpen.has(t.id))
+        .map(t => ({
+          organization_id: orgId,
+          board_id: boardId,
+          stage_id: stageId,
+          status: stageId,
+          title: t.name || 'Contato importado',
+          value: 0,
+          probability: 0,
+          priority: 'medium',
+          contact_id: t.id,
+          tags: t.tags,
+          custom_fields: {},
+          is_won: false,
+          is_lost: false,
+        }));
+      dealsSkipped = touched.length - dealRows.length;
+      for (let i = 0; i < dealRows.length; i += 100) {
+        const chunk = dealRows.slice(i, i + 100);
+        const { error: dealErr } = await supabase.from('deals').insert(chunk);
+        if (!dealErr) { dealsCreated += chunk.length; continue; }
+        // lote falhou (ex.: trigger de duplicidade) -> tenta um a um para nao perder o lote inteiro
+        for (const row of chunk) {
+          const { error: oneErr } = await supabase.from('deals').insert(row);
+          if (oneErr) errors.push({ rowNumber: 0, message: `Negócio não criado para "${row.title}": ${oneErr.message}` });
+          else dealsCreated += 1;
+        }
+      }
+    }
 
     return NextResponse.json({
       ok: true,
@@ -373,6 +478,8 @@ export async function POST(req: Request) {
         updated,
         skipped,
         errors: errors.length,
+        dealsCreated,
+        dealsSkipped,
       },
       errors,
       detectedHeaders: headers,
