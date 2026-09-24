@@ -119,7 +119,6 @@ export function NewConversationModal({
         contactName: contactName || undefined,
         contactId: defaultContactId,
       });
-      handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao criar conversa');
     } finally {

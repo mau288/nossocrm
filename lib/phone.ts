@@ -40,6 +40,11 @@ export function normalizePhoneE164(
   return raw;
 }
 
+/** Normaliza um telefone destinado ao WhatsApp sem alterar seus dígitos. */
+export function normalizeWhatsAppPhoneE164(input?: string | null): string {
+  return normalizePhoneE164(input);
+}
+
 /**
  * Função pública `isE164` do projeto.
  *

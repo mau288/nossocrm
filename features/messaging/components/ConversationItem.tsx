@@ -26,6 +26,7 @@ export const ConversationItem = memo(function ConversationItem({
 }: ConversationItemProps) {
   const {
     externalContactName,
+    contactName,
     externalContactAvatar,
     channelType,
     lastMessagePreview,
@@ -38,7 +39,7 @@ export const ConversationItem = memo(function ConversationItem({
     status,
   } = conversation;
 
-  const displayName = externalContactName || 'Contato desconhecido';
+  const displayName = externalContactName || contactName || 'Contato desconhecido';
   const timeAgo = lastMessageAt
     ? formatDistanceToNow(new Date(lastMessageAt), { addSuffix: true, locale: ptBR })
     : '';

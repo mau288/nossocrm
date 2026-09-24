@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, Mail, Phone, Plus, Calendar, Pencil, Trash2, Globe, MoreHorizontal, ArrowUpDown, ArrowUp, ArrowDown, GitMerge, Users } from 'lucide-react';
+import { Building2, Mail, Phone, Plus, Calendar, Pencil, Trash2, Globe, MoreHorizontal, ArrowUpDown, ArrowUp, ArrowDown, GitMerge, Users, MessageSquare } from 'lucide-react';
 import { Contact, Company, ContactSortableColumn } from '@/types';
 import { StageBadge } from './ContactsStageTabs';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -94,6 +94,7 @@ interface ContactsListProps {
     duplicateContactIds?: Set<string>;
     // Empty state action
     onAddContact?: () => void;
+    onMessageContact?: (contact: Contact) => void;
 }
 
 /**
@@ -154,6 +155,7 @@ export const ContactsList: React.FC<ContactsListProps> = ({
     onSort,
     duplicateContactIds,
     onAddContact,
+    onMessageContact,
 }) => {
     const activeListIds = viewMode === 'people'
         ? filteredContacts.map(c => c.id)
@@ -286,6 +288,16 @@ export const ContactsList: React.FC<ContactsListProps> = ({
                                             <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 text-xs">
                                                 <Phone size={12} /> {contact.phone || '---'}
                                             </div>
+                                            {contact.phone && onMessageContact && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onMessageContact(contact)}
+                                                    className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-green-50 px-1.5 py-1 text-[11px] font-medium text-green-700 hover:bg-green-100 dark:bg-green-500/10 dark:text-green-400 dark:hover:bg-green-500/20"
+                                                >
+                                                    <MessageSquare size={12} aria-hidden="true" />
+                                                    Mensagem
+                                                </button>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
@@ -332,6 +344,17 @@ export const ContactsList: React.FC<ContactsListProps> = ({
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                            {contact.phone && onMessageContact && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onMessageContact(contact)}
+                                                    className="p-1.5 text-slate-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                                                    aria-label={`Enviar mensagem para ${contact.name || 'contato'}`}
+                                                    title="Enviar mensagem"
+                                                >
+                                                    <MessageSquare size={16} aria-hidden="true" />
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => openEditModal(contact)}
                                                 className="p-1.5 text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded transition-colors"

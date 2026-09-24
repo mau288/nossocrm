@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { ConversationItem } from './ConversationItem';
 import { ChannelIndicator } from './ChannelIndicator';
 import { useConversations } from '@/lib/query/hooks/useConversationsQuery';
+import { useChannelsQuery } from '@/lib/query/hooks/useChannelsQuery';
 import type { ConversationFilters, ConversationStatus, ChannelType, ConversationView } from '@/lib/messaging/types';
 import type { PresenceStatus } from '@/lib/messaging/hooks/useContactPresence';
 
@@ -60,28 +61,38 @@ export const ConversationList = memo(function ConversationList({
   const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all'>('open');
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState<ChannelType | 'all'>('all');
+  const [whatsappChannelId, setWhatsappChannelId] = useState<string | 'all'>('all');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const { data: channels = [] } = useChannelsQuery();
+
+  const whatsappChannels = useMemo(
+    () => channels.filter((channel) => channel.channelType === 'whatsapp'),
+    [channels]
+  );
 
   const filters: ConversationFilters = useMemo(() => ({
     status: statusFilter,
     businessUnitId,
     search: searchQuery || undefined,
     channelType: channelFilter !== 'all' ? channelFilter : undefined,
+    channelId: whatsappChannelId !== 'all' ? whatsappChannelId : undefined,
     hasUnread: showUnreadOnly || undefined,
-  }), [statusFilter, businessUnitId, searchQuery, channelFilter, showUnreadOnly]);
+  }), [statusFilter, businessUnitId, searchQuery, channelFilter, whatsappChannelId, showUnreadOnly]);
 
   const { data: conversations, isLoading, error } = useConversations(filters);
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (channelFilter !== 'all') count++;
+    if (whatsappChannelId !== 'all') count++;
     if (showUnreadOnly) count++;
     return count;
-  }, [channelFilter, showUnreadOnly]);
+  }, [channelFilter, whatsappChannelId, showUnreadOnly]);
 
   const clearFilters = () => {
     setChannelFilter('all');
+    setWhatsappChannelId('all');
     setShowUnreadOnly(false);
   };
 
@@ -193,6 +204,53 @@ export const ConversationList = memo(function ConversationList({
                 ))}
               </div>
             </div>
+
+            {/* WhatsApp chip filter */}
+            {whatsappChannels.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
+                  Chip do WhatsApp
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setWhatsappChannelId('all')}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors',
+                      whatsappChannelId === 'all'
+                        ? 'bg-primary-500 text-white'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 hover:border-primary-300'
+                    )}
+                  >
+                    Todos os chips
+                  </button>
+                  {whatsappChannels.map((channel) => {
+                    const phoneDigits = channel.externalIdentifier.replace(/\D/g, '');
+                    const suffix = phoneDigits ? ` • ${phoneDigits.slice(-4)}` : '';
+                    return (
+                      <button
+                        key={channel.id}
+                        type="button"
+                        onClick={() => {
+                          setWhatsappChannelId(channel.id);
+                          setChannelFilter('whatsapp');
+                        }}
+                        className={cn(
+                          'flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors',
+                          whatsappChannelId === channel.id
+                            ? 'bg-primary-500 text-white'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 hover:border-primary-300'
+                        )}
+                        title={`Ver somente conversas do ${channel.name}`}
+                      >
+                        <ChannelIndicator type="whatsapp" size="sm" />
+                        {channel.name}{suffix}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Unread Filter */}
             <div className="flex items-center justify-between">

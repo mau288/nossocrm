@@ -277,27 +277,80 @@ function normalizeMessageEvent(root: Obj): NormalizedMessage | null {
     readText(sender, ["avatar", "avatarUrl", "profilePic"]) ??
     readText(conversation, ["participantPicture", "participantAvatar"]);
 
-  const attachments: { type: string | null; url: string }[] = [];
-  const rawAttachments = Array.isArray(message["attachments"]) ? (message["attachments"] as unknown[]) : [];
-  for (const item of rawAttachments) {
-    const att = asObj(item);
-    if (!att) continue;
-    const url = readText(att, ["url"]);
-    if (!url) continue;
-    attachments.push({ type: readText(att, ["type"]), url });
-  }
+  const { attachments, templateText } = parseAttachments(message["attachments"]);
 
   return {
     conversationExternalId,
     externalMessageId: readText(message, ["id", "platformMessageId"]),
     direction,
-    text: readText(message, ["text"]),
+    text: joinText(readText(message, ["text"]), templateText),
     attachments,
     senderName,
     senderUsername,
     senderAvatar,
     timestamp: parseDate(readText(message, ["sentAt"]) ?? readText(root, ["timestamp"])),
   };
+}
+
+/**
+ * Automações (ManyChat etc.) mandam "cartões": o texto fica dentro de um
+ * template (payload.generic.elements[].title + botões), não em `text`, e o
+ * anexo não tem `url`. Sem isso a mensagem chega vazia e é descartada.
+ */
+function parseAttachments(raw: unknown): {
+  attachments: { type: string | null; url: string }[];
+  templateText: string | null;
+} {
+  const attachments: { type: string | null; url: string }[] = [];
+  const parts: string[] = [];
+  const items = Array.isArray(raw) ? raw : [];
+
+  const pushButtons = (buttons: unknown) => {
+    if (!Array.isArray(buttons)) return;
+    for (const b of buttons) {
+      const title = readText(asObj(b), ["title"]);
+      if (title) parts.push(`▸ ${title}`);
+    }
+  };
+
+  for (const item of items) {
+    const att = asObj(item);
+    if (!att) continue;
+    const type = readText(att, ["type"]);
+
+    if ((type ?? "").toLowerCase() === "template") {
+      const payload = asObj(att["payload"]);
+      const generic = asObj(payload?.["generic"]);
+      const elements = Array.isArray(generic?.["elements"]) ? (generic!["elements"] as unknown[]) : [];
+      for (const el of elements) {
+        const e = asObj(el);
+        if (!e) continue;
+        const title = readText(e, ["title"]);
+        const subtitle = readText(e, ["subtitle"]);
+        if (title) parts.push(title);
+        if (subtitle) parts.push(subtitle);
+        const image = readText(e, ["image_url", "imageUrl"]);
+        if (image) attachments.push({ type: "image", url: image });
+        pushButtons(e["buttons"]);
+      }
+      // button template: { payload: { text, buttons } }
+      const plain = readText(payload, ["text"]);
+      if (plain) parts.push(plain);
+      pushButtons(payload?.["buttons"]);
+      continue;
+    }
+
+    const url = readText(att, ["url"]);
+    if (!url) continue;
+    attachments.push({ type, url });
+  }
+
+  return { attachments, templateText: parts.length ? parts.join("\n\n") : null };
+}
+
+function joinText(a: string | null, b: string | null): string | null {
+  if (a && b) return `${a}\n\n${b}`;
+  return a ?? b ?? null;
 }
 
 function contentFor(norm: NormalizedMessage): { contentType: string; content: Obj } {
@@ -437,6 +490,39 @@ Deno.serve(async (req) => {
     readText(message, ["id", "platformMessageId"]) ??
     readText(conversation, ["id"]) ??
     (await hmacHex("zernio-event", rawBody)).slice(0, 32);
+  if (event === "crm.backfill") {
+    const offset = Number(readText(payload, ["offset"]) ?? 0) || 0;
+    const limit = Math.min(Number(readText(payload, ["limit"]) ?? 40) || 40, 60);
+    const result = await backfillChannel(supabase, channel as unknown as ChannelRow, offset, limit);
+    return json(200, { ok: true, event, ...result });
+  }
+
+  // Vínculo explícito do YouTube: antes de persistir, confirmamos pela própria
+  // API Zernio que a conta pertence à chave do canal desta organização.
+  if (event === "crm.authorize_youtube_comment_account") {
+    const accountId = readText(payload, ["accountId"]);
+    const channelRow = channel as unknown as ChannelRow;
+    const current = (channelRow.credentials ?? {}) as Record<string, unknown>;
+    const apiKey = typeof current["apiKey"] === "string" ? current["apiKey"] : null;
+    if (!accountId || !apiKey) return json(400, { ok: false, error: "Conta/canal inválido" });
+    const verify = await fetch(`${ZERNIO_API}/accounts?platform=youtube`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const verified = verify.ok ? (await verify.json()) as Obj : {};
+    const accounts = Array.isArray(verified["accounts"]) ? verified["accounts"] : Array.isArray(verified["data"]) ? verified["data"] : [];
+    const belongsToChannel = accounts.some((raw) => {
+      const account = asObj(raw);
+      return account && readText(account, ["id", "_id", "accountId"]) === accountId && readText(account, ["platform"])?.toLowerCase() === "youtube";
+    });
+    if (!belongsToChannel) return json(403, { ok: false, error: "Conta YouTube não pertence à integração" });
+    const configured = Array.isArray(current["commentAccountIds"])
+      ? (current["commentAccountIds"] as unknown[]).filter((id): id is string => typeof id === "string")
+      : [];
+    const primary = typeof current["accountId"] === "string" ? [current["accountId"]] : [];
+    const ids = Array.from(new Set([...primary, ...configured, accountId]));
+    const { error } = await supabase.from("messaging_channels").update({ credentials: { ...current, commentAccountIds: ids } }).eq("id", channelId);
+    if (error) return json(500, { ok: false, error: "Não foi possível autorizar a conta" });
+    return json(200, { ok: true, event, accountId, allowedAccountIds: ids });
+  }
+
   const externalEventId = `zernio:${event}:${stableId}`;
 
   const { error: eventInsertErr } = await supabase
@@ -506,6 +592,7 @@ type ChannelRow = {
   organization_id: string;
   business_unit_id: string;
   external_identifier: string;
+  credentials?: Record<string, unknown> | null;
 };
 
 /**
@@ -522,10 +609,13 @@ async function ensureConversation(
     displayName: string | null;
     username: string | null;
     avatar: string | null;
+    identityTrusted?: boolean;
   }
 ): Promise<{ conversationId: string; contactId: string | null; created: boolean }> {
+  const trustedDisplayName = params.identityTrusted ? params.displayName : null;
+  const trustedUsername = params.identityTrusted ? params.username : null;
   const contactName =
-    params.displayName ?? (params.username ? `@${params.username.replace(/^@/, "")}` : null) ?? "Contato do Instagram";
+    trustedDisplayName ?? (trustedUsername ? `@${trustedUsername.replace(/^@/, "")}` : null) ?? "Contato do Instagram";
   const hasRealName = contactName !== "Contato do Instagram";
 
   const { data: existingConv, error: convFindErr } = await supabase
@@ -540,7 +630,7 @@ async function ensureConversation(
   if (existingConv) {
     // conversation.started chega com participantName vazio e cria o registro
     // genérico; quando um evento posterior traz o nome real, promovemos.
-    if (hasRealName && existingConv.external_contact_name === "Contato do Instagram") {
+    if (params.identityTrusted && hasRealName && existingConv.external_contact_name !== contactName) {
       await supabase
         .from("messaging_conversations")
         .update({
@@ -557,7 +647,7 @@ async function ensureConversation(
             ...(params.avatar ? { avatar: params.avatar } : {}),
           })
           .eq("id", existingConv.contact_id)
-          .eq("name", "Contato do Instagram");
+          .in("name", ["Contato do Instagram", existingConv.external_contact_name]);
       }
     }
     return { conversationId: existingConv.id, contactId: existingConv.contact_id, created: false };
@@ -642,59 +732,14 @@ async function handleMessage(
     displayName: norm.senderName,
     username: norm.senderUsername,
     avatar: norm.senderAvatar,
+    identityTrusted: norm.direction === "inbound",
   });
 
+  const inserted = await storeMessage(supabase, conversationId, norm);
+  if (!inserted) return;
   const { contentType, content } = contentFor(norm);
   const isOutbound = norm.direction === "outbound";
-
-  const { data: insertedMsg, error: msgErr } = await supabase
-    .from("messaging_messages")
-    .insert({
-      conversation_id: conversationId,
-      external_id: norm.externalMessageId,
-      direction: norm.direction,
-      content_type: contentType,
-      content,
-      status: isOutbound ? "sent" : "delivered",
-      ...(isOutbound
-        ? { sent_at: norm.timestamp.toISOString() }
-        : { delivered_at: norm.timestamp.toISOString() }),
-      sender_name: isOutbound ? null : norm.senderName ?? norm.senderUsername,
-      metadata: {
-        zernio_conversation_id: norm.conversationExternalId,
-        ...(norm.senderUsername ? { instagram_username: norm.senderUsername } : {}),
-      },
-    })
-    .select("id")
-    .maybeSingle();
-
-  if (msgErr) {
-    if (!msgErr.message.toLowerCase().includes("duplicate")) {
-      throw msgErr;
-    }
-    console.log(`[Zernio] Duplicate message ignored: ${norm.externalMessageId}`);
-    return;
-  }
-
-  // Update conversation — reopen and refresh the 24h response window on inbound
-  const { error: convUpdateErr } = await supabase
-    .from("messaging_conversations")
-    .update({
-      last_message_at: norm.timestamp.toISOString(),
-      last_message_preview: previewFor(norm).slice(0, 100),
-      last_message_direction: norm.direction,
-      ...(isOutbound
-        ? {}
-        : {
-            status: "open",
-            window_expires_at: new Date(norm.timestamp.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-          }),
-    })
-    .eq("id", conversationId);
-
-  if (convUpdateErr) {
-    console.error("[Zernio] Failed to update conversation:", convUpdateErr, { conversationId });
-  }
+  const insertedMsg = { id: inserted };
 
   // Only trigger AI for inbound text messages
   if (!isOutbound && contentType === "text" && insertedMsg?.id) {
@@ -710,6 +755,218 @@ async function handleMessage(
       });
     }
   }
+
+  // A Zernio não dispara webhook para tudo que sai por fora dela (ManyChat e
+  // outras automações). Quando a conversa se mexe, buscamos o fio recente e
+  // completamos o que faltar.
+  await syncConversationHistory(supabase, channel, norm.conversationExternalId, conversationId).catch(
+    (err) => console.error("[Zernio] sync error:", err)
+  );
+}
+
+/**
+ * Grava a mensagem se ela ainda não existe. Retorna o id novo, ou null quando
+ * já estava lá. Dedup em duas camadas: external_id (índice único) e, como o
+ * webhook e a API da Zernio usam ids diferentes para a mesma mensagem,
+ * direção + texto + horário próximo.
+ */
+async function storeMessage(
+  supabase: ReturnType<typeof createClient>,
+  conversationId: string,
+  norm: NormalizedMessage
+): Promise<string | null> {
+  const { contentType, content } = contentFor(norm);
+  const isOutbound = norm.direction === "outbound";
+  const preview = previewFor(norm);
+
+  const windowMs = 90_000;
+  const { data: near } = await supabase
+    .from("messaging_messages")
+    .select("id, external_id, content, content_type")
+    .eq("conversation_id", conversationId)
+    .eq("direction", norm.direction)
+    .gte("created_at", new Date(norm.timestamp.getTime() - windowMs).toISOString())
+    .lte("created_at", new Date(norm.timestamp.getTime() + windowMs).toISOString());
+
+  const myText = (norm.text ?? "").trim();
+  for (const row of near ?? []) {
+    if (norm.externalMessageId && row.external_id === norm.externalMessageId) return null;
+    const c = (row.content ?? {}) as { text?: string; caption?: string };
+    const existing = (c.text ?? c.caption ?? "").trim();
+    if (myText && existing === myText) return null;
+    if (!myText && !existing && row.content_type === contentType) return null;
+  }
+
+  const { data: insertedMsg, error: msgErr } = await supabase
+    .from("messaging_messages")
+    .insert({
+      conversation_id: conversationId,
+      external_id: norm.externalMessageId,
+      direction: norm.direction,
+      content_type: contentType,
+      content,
+      status: isOutbound ? "sent" : "delivered",
+      // A tela ordena por created_at: mensagem que entra atrasada (sync)
+      // precisa cair no lugar certo do fio, não no fim.
+      created_at: norm.timestamp.toISOString(),
+      ...(isOutbound
+        ? { sent_at: norm.timestamp.toISOString() }
+        : { delivered_at: norm.timestamp.toISOString() }),
+      sender_name: isOutbound ? null : norm.senderName ?? norm.senderUsername,
+      metadata: {
+        zernio_conversation_id: norm.conversationExternalId,
+        ...(norm.senderUsername ? { instagram_username: norm.senderUsername } : {}),
+      },
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (msgErr) {
+    if (msgErr.message.toLowerCase().includes("duplicate")) return null;
+    throw msgErr;
+  }
+
+  // Só avança a "última mensagem" se esta for de fato a mais nova.
+  const { data: conv } = await supabase
+    .from("messaging_conversations")
+    .select("last_message_at")
+    .eq("id", conversationId)
+    .maybeSingle();
+  const newer = !conv?.last_message_at || new Date(conv.last_message_at as string) <= norm.timestamp;
+
+  const { error: convUpdateErr } = await supabase
+    .from("messaging_conversations")
+    .update({
+      ...(newer
+        ? {
+            last_message_at: norm.timestamp.toISOString(),
+            last_message_preview: preview.slice(0, 100),
+            last_message_direction: norm.direction,
+          }
+        : {}),
+      ...(isOutbound
+        ? {}
+        : {
+            status: "open",
+            window_expires_at: new Date(norm.timestamp.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          }),
+    })
+    .eq("id", conversationId);
+  if (convUpdateErr) {
+    console.error("[Zernio] Failed to update conversation:", convUpdateErr, { conversationId });
+  }
+
+  return insertedMsg?.id ?? null;
+}
+
+const ZERNIO_API = "https://zernio.com/api/v1";
+
+/** Mensagem vinda da API de inbox (vocabulário: `message`, `createdAt`). */
+function normalizeApiMessage(conversationExternalId: string, m: Obj): NormalizedMessage | null {
+  if (m["isDeleted"] === true) return null;
+  const direction =
+    (readText(m, ["direction"]) ?? "incoming").toLowerCase() === "outgoing" ? "outbound" : "inbound";
+  const { attachments, templateText } = parseAttachments(m["attachments"]);
+  const text = joinText(readText(m, ["message", "text"]), templateText);
+  if (!text && attachments.length === 0) return null;
+  return {
+    conversationExternalId,
+    externalMessageId: readText(m, ["id"]),
+    direction,
+    text,
+    attachments,
+    senderName: direction === "inbound" ? readText(m, ["senderName"]) : null,
+    senderUsername: null,
+    senderAvatar: null,
+    timestamp: parseDate(readText(m, ["sentAt", "createdAt"])),
+  };
+}
+
+async function syncConversationHistory(
+  supabase: ReturnType<typeof createClient>,
+  channel: ChannelRow,
+  conversationExternalId: string,
+  conversationId: string,
+  mode: "recent" | "full" = "recent"
+): Promise<number> {
+  const creds = (channel.credentials ?? {}) as Record<string, string>;
+  if (!creds.apiKey || !creds.accountId) return 0;
+
+  // recent: só as 50 últimas (dia a dia). full: fio inteiro, página a página
+  // pelo cursor (a API entrega no máximo 100 por vez).
+  const base =
+    `${ZERNIO_API}/inbox/conversations/${encodeURIComponent(conversationExternalId)}/messages` +
+    `?accountId=${encodeURIComponent(creds.accountId)}&limit=${mode === "full" ? 100 : 50}` +
+    `&sortOrder=${mode === "full" ? "asc" : "desc"}`;
+
+  let added = 0;
+  let cursor: string | null = null;
+  const maxPages = mode === "full" ? 30 : 1;
+
+  for (let page = 0; page < maxPages; page++) {
+    const url = cursor ? `${base}&cursor=${encodeURIComponent(cursor)}` : base;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${creds.apiKey}` } });
+    if (!res.ok) {
+      console.warn(`[Zernio] sync ${conversationExternalId}: HTTP ${res.status}`);
+      break;
+    }
+    const body = (await res.json()) as Obj;
+    const list = Array.isArray(body["messages"]) ? (body["messages"] as unknown[]) : [];
+
+    for (const raw of list) {
+      const m = asObj(raw);
+      if (!m) continue;
+      const norm = normalizeApiMessage(conversationExternalId, m);
+      if (!norm) continue;
+      if (await storeMessage(supabase, conversationId, norm)) added++;
+    }
+
+    const pagination = asObj(body["pagination"]);
+    const next = readText(pagination, ["nextCursor"]);
+    // o cursor é inclusivo: a 1ª mensagem da página seguinte repete a última
+    // desta — o dedup absorve.
+    if (pagination?.["hasMore"] !== true || !next || next === cursor) break;
+    cursor = next;
+  }
+
+  if (added) console.log(`[Zernio] sync ${conversationExternalId} (${mode}): +${added}`);
+  return added;
+}
+
+/**
+ * Carga do que ficou para trás: percorre as conversas do canal e sincroniza
+ * cada uma. Disparado manualmente (event "crm.backfill"), em lotes.
+ */
+async function backfillChannel(
+  supabase: ReturnType<typeof createClient>,
+  channel: ChannelRow,
+  offset: number,
+  limit: number
+) {
+  const { data: convs, error } = await supabase
+    .from("messaging_conversations")
+    .select("id, external_contact_id, external_contact_name")
+    .eq("channel_id", channel.id)
+    .order("created_at", { ascending: true })
+    .range(offset, offset + limit - 1);
+  if (error) throw error;
+
+  let added = 0;
+  const details: { id: string; name: string; added: number }[] = [];
+  for (const c of convs ?? []) {
+    const n = await syncConversationHistory(
+      supabase,
+      channel,
+      c.external_contact_id as string,
+      c.id as string,
+      "full"
+    );
+    added += n;
+    details.push({ id: c.id as string, name: c.external_contact_name as string, added: n });
+    // limite da Zernio: 60 req/min
+    await new Promise((r) => setTimeout(r, 1100));
+  }
+  return { processed: convs?.length ?? 0, added, nextOffset: offset + (convs?.length ?? 0), details };
 }
 
 async function handleConversationStarted(

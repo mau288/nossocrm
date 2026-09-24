@@ -9,7 +9,7 @@
  * espelho do canal. Pendentes podem ser canceladas até o horário do envio.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Plus, X, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -21,6 +21,7 @@ import {
   useCreateScheduledMessage,
   useCancelScheduledMessage,
 } from '@/lib/query/hooks/useScheduledMessagesQuery';
+import { useConnectedChannelsQuery } from '@/lib/query/hooks/useChannelsQuery';
 
 interface ScheduledMessagesSectionProps {
   conversationId: string;
@@ -42,6 +43,7 @@ export const ScheduledMessagesSection: React.FC<ScheduledMessagesSectionProps> =
 }) => {
   const { profile, organizationId } = useAuth();
   const { showToast } = useToast();
+  const { data: connectedChannels = [] } = useConnectedChannelsQuery();
   const { data: scheduled = [] } = useScheduledMessages(conversationId);
   const createScheduled = useCreateScheduledMessage();
   const cancelScheduled = useCancelScheduledMessage();
@@ -49,6 +51,19 @@ export const ScheduledMessagesSection: React.FC<ScheduledMessagesSectionProps> =
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [content, setContent] = useState('');
   const [when, setWhen] = useState('');
+  const [selectedChannelId, setSelectedChannelId] = useState(channelId);
+
+  const followUpChannels = useMemo(() => {
+    const current = connectedChannels.find((channel) => channel.id === channelId);
+    const otherWhatsapp = connectedChannels.filter(
+      (channel) => channel.channelType === 'whatsapp' && channel.id !== channelId
+    );
+    return current ? [current, ...otherWhatsapp] : otherWhatsapp;
+  }, [channelId, connectedChannels]);
+
+  useEffect(() => {
+    setSelectedChannelId(channelId);
+  }, [channelId]);
 
   const pending = scheduled.filter((s) => s.status === 'pending');
   const history = scheduled.filter((s) => s.status !== 'pending').slice(-3);
@@ -67,7 +82,7 @@ export const ScheduledMessagesSection: React.FC<ScheduledMessagesSectionProps> =
       {
         organizationId,
         conversationId,
-        channelId,
+        channelId: selectedChannelId,
         contactId: contactId ?? null,
         content: content.trim(),
         scheduledAt: new Date(when).toISOString(),
@@ -76,8 +91,9 @@ export const ScheduledMessagesSection: React.FC<ScheduledMessagesSectionProps> =
       {
         onSuccess: () => {
           showToast('Mensagem programada!', 'success');
-          setContent('');
-          setWhen('');
+            setContent('');
+            setWhen('');
+            setSelectedChannelId(channelId);
           setIsFormOpen(false);
         },
         onError: (err) => {
@@ -156,6 +172,25 @@ export const ScheduledMessagesSection: React.FC<ScheduledMessagesSectionProps> =
             onChange={(e) => setWhen(e.target.value)}
             className={inputClass}
           />
+          {followUpChannels.length > 0 && (
+            <label className="block space-y-1 text-xs text-slate-500 dark:text-slate-400">
+              <span>Enviar pelo chip</span>
+              <select
+                value={selectedChannelId}
+                onChange={(event) => setSelectedChannelId(event.target.value)}
+                className={inputClass}
+              >
+                {followUpChannels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    {channel.id === channelId ? `${channel.name} (conversa atual)` : channel.name}
+                  </option>
+                ))}
+              </select>
+              {selectedChannelId !== channelId && (
+                <span className="block text-[11px]">O follow-up sairá pelo chip selecionado.</span>
+              )}
+            </label>
+          )}
           <div className="flex gap-2 justify-end">
             <button
               type="button"

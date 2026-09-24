@@ -85,6 +85,20 @@ function getCell(row: string[], idx: number | undefined): string | undefined {
   return t ? t : undefined;
 }
 
+/**
+ * CSVs exportados por Excel no Windows são frequentemente Windows-1252, embora
+ * venham sem metadado de charset. Decodificá-los sempre como UTF-8 transforma
+ * acentos em "�" e grava o texto corrompido no CRM. Tentamos UTF-8 estrito
+ * primeiro e usamos Windows-1252 apenas quando o arquivo não é UTF-8 válido.
+ */
+function decodeCsvFile(bytes: ArrayBuffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
 function normalizeStatus(v: string | undefined): string | undefined {
   if (!v) return undefined;
   const s = normalizeHeader(v).toUpperCase();
@@ -112,6 +126,9 @@ export async function POST(req: Request) {
     const modeRaw = form.get('mode');
     const delimiterRaw = form.get('delimiter');
     const createCompanies = BooleanStringSchema.parse(String(form.get('createCompanies') ?? 'true'));
+    const createDeals = BooleanStringSchema.parse(String(form.get('createDeals') ?? 'false'));
+    const dealBoardId = String(form.get('dealBoardId') ?? '').trim();
+    const dealStageId = String(form.get('dealStageId') ?? '').trim();
 
     const modeResult = ImportModeSchema.safeParse(String(modeRaw ?? 'upsert_by_email'));
     if (!modeResult.success) {
@@ -119,11 +136,15 @@ export async function POST(req: Request) {
     }
     const mode: ImportMode = modeResult.data;
 
+    if (createDeals && (!z.string().uuid().safeParse(dealBoardId).success || !z.string().uuid().safeParse(dealStageId).success)) {
+      return NextResponse.json({ error: 'Pipeline e etapa inicial inválidos.' }, { status: 400 });
+    }
+
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'Arquivo CSV não enviado (field "file").' }, { status: 400 });
     }
 
-    const text = await file.text();
+    const text = decodeCsvFile(await file.arrayBuffer());
     const delimiter: CsvDelimiter =
       delimiterRaw === ',' || delimiterRaw === ';' || delimiterRaw === '\t'
         ? (delimiterRaw as CsvDelimiter)
@@ -205,6 +226,27 @@ export async function POST(req: Request) {
 
     const orgId = profile.organization_id;
 
+    // O destino do deal é sempre validado no servidor. Assim, um usuário não
+    // consegue direcionar uma importação para um pipeline/etapa de outra organização.
+    if (createDeals) {
+      const { data: board, error: boardError } = await supabase
+        .from('boards')
+        .select('id')
+        .eq('id', dealBoardId)
+        .eq('organization_id', orgId)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (boardError || !board) return NextResponse.json({ error: 'Pipeline não encontrado ou sem acesso.' }, { status: 403 });
+
+      const { data: stage, error: stageError } = await supabase
+        .from('board_stages')
+        .select('id')
+        .eq('id', dealStageId)
+        .eq('board_id', dealBoardId)
+        .maybeSingle();
+      if (stageError || !stage) return NextResponse.json({ error: 'A etapa selecionada não pertence ao pipeline informado.' }, { status: 400 });
+    }
+
     // Companies: preload and optionally create missing ones
     const { data: companies, error: companiesError } = await supabase
       .from('crm_companies')
@@ -281,22 +323,35 @@ export async function POST(req: Request) {
     let created = 0;
     let updated = 0;
     let skipped = 0;
+    let dealsCreated = 0;
+    const pendingDeals: Array<{ rowNumber: number; contactId: string; title: string; companyId: string | null }> = [];
+    const queueDeal = (rowNumber: number, contactId: string, title: string, companyId: string | null) => {
+      if (createDeals) pendingDeals.push({ rowNumber, contactId, title: title || 'Contato importado', companyId });
+    };
 
     // Import in manageable chunks to reduce payload sizes
-    const insertBatch: Array<{ rowNumber: number; payload: Record<string, unknown> }> = [];
+    const insertBatch: Array<{ rowNumber: number; payload: Record<string, unknown>; dealTitle: string; companyId: string | null }> = [];
     const flushInsert = async () => {
       if (!insertBatch.length) return;
-      const payloads = insertBatch.map(i => i.payload);
-      const { error: insertError } = await supabase.from('contacts').insert(payloads);
+      const batch = insertBatch.splice(0, insertBatch.length);
+      const payloads = batch.map(i => i.payload);
+      const { data: insertedContacts, error: insertError } = await supabase.from('contacts').insert(payloads).select('id');
       if (insertError) {
         // If batch insert fails, mark all rows as errors (keep it simple for v1)
-        for (const item of insertBatch) {
+        for (const item of batch) {
           errors.push({ rowNumber: item.rowNumber, message: insertError.message });
         }
       } else {
-        created += insertBatch.length;
+        created += insertedContacts?.length ?? 0;
+        for (let index = 0; index < batch.length; index += 1) {
+          const contact = insertedContacts?.[index];
+          if (!contact?.id) {
+            errors.push({ rowNumber: batch[index].rowNumber, message: 'Contato criado sem identificador retornado.' });
+            continue;
+          }
+          queueDeal(batch[index].rowNumber, contact.id, batch[index].dealTitle, batch[index].companyId);
+        }
       }
-      insertBatch.length = 0;
     };
 
     for (const p of parsed) {
@@ -323,7 +378,7 @@ export async function POST(req: Request) {
 
       if (mode === 'create_only') {
         // Always create, even if duplicates exist.
-        insertBatch.push({ rowNumber, payload: base });
+        insertBatch.push({ rowNumber, payload: base, dealTitle: p.data.name || p.data.email || 'Contato importado', companyId: companyId || null });
         if (insertBatch.length >= 200) await flushInsert();
         continue;
       }
@@ -348,19 +403,49 @@ export async function POST(req: Request) {
           errors.push({ rowNumber, message: updateError.message });
         } else {
           updated += 1;
+          queueDeal(rowNumber, id, p.data.name || p.data.email || 'Contato importado', companyId || null);
         }
         continue;
       }
 
       // No email match (or no email): create
-      insertBatch.push({ rowNumber, payload: base });
+      insertBatch.push({ rowNumber, payload: base, dealTitle: p.data.name || p.data.email || 'Contato importado', companyId: companyId || null });
       if (insertBatch.length >= 200) await flushInsert();
     }
 
     await flushInsert();
 
-    // Remove internal field from potential logs; not persisted in DB anyway (supabase ignores unknown)
-    // but we keep it only in memory; ok.
+    if (createDeals && pendingDeals.length) {
+      // Inserimos em blocos para manter a importação rápida também em listas grandes.
+      const importedAt = new Date().toISOString();
+      const dealChunkSize = 150;
+      for (let start = 0; start < pendingDeals.length; start += dealChunkSize) {
+        const chunk = pendingDeals.slice(start, start + dealChunkSize);
+        const rowsToInsert = chunk.map(item => ({
+          organization_id: orgId,
+          owner_id: user.id,
+          title: item.title,
+          value: 0,
+          probability: 0,
+          priority: 'medium',
+          status: dealStageId,
+          board_id: dealBoardId,
+          stage_id: dealStageId,
+          contact_id: item.contactId,
+          client_company_id: item.companyId,
+          custom_fields: { import_source: 'contacts_csv' },
+          is_won: false,
+          is_lost: false,
+          last_stage_change_date: importedAt,
+        }));
+        const { data: insertedDeals, error: dealsError } = await supabase.from('deals').insert(rowsToInsert).select('id');
+        if (dealsError) {
+          for (const item of chunk) errors.push({ rowNumber: item.rowNumber, message: `Não foi possível criar o negócio: ${dealsError.message}` });
+        } else {
+          dealsCreated += insertedDeals?.length ?? 0;
+        }
+      }
+    }
 
     return NextResponse.json({
       ok: true,
@@ -371,6 +456,7 @@ export async function POST(req: Request) {
         parsed: parsed.length,
         created,
         updated,
+        dealsCreated,
         skipped,
         errors: errors.length,
       },

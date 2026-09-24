@@ -45,6 +45,7 @@ interface ContactPanelProps {
   onSendToFunnel?: () => void;
   /** Abre o modal "Puxar pro WhatsApp" (handoff do Instagram). */
   onPullToWhatsApp?: () => void;
+  onOpenWithAnotherChip?: () => void;
   hasDuplicate?: boolean;
   onResolveDuplicate?: () => void;
   className?: string;
@@ -109,6 +110,7 @@ export const ContactPanel = memo(function ContactPanel({
   onViewDeals,
   onSendToFunnel,
   onPullToWhatsApp,
+  onOpenWithAnotherChip,
   hasDuplicate,
   onResolveDuplicate,
   className,
@@ -170,7 +172,7 @@ export const ContactPanel = memo(function ContactPanel({
     priority,
   } = conversation;
 
-  const displayName = contactName || externalContactName || 'Contato desconhecido';
+  const displayName = externalContactName || contactName || 'Contato desconhecido';
   const hasLinkedContact = !!contactId;
 
   return (
@@ -288,6 +290,19 @@ export const ContactPanel = memo(function ContactPanel({
         </div>
 
         {/* Enviar pro Funil — criação manual de negócio a partir da conversa */}
+        {hasLinkedContact && contactPhone && onOpenWithAnotherChip && (
+          <button
+            type="button"
+            onClick={onOpenWithAnotherChip}
+            className={cn(
+              'w-full mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold',
+              'bg-emerald-600 text-white hover:bg-emerald-700 transition-colors'
+            )}
+          >
+            <Send className="w-3.5 h-3.5" />
+            Abrir em outro chip
+          </button>
+        )}
         {hasLinkedContact && onSendToFunnel && (
           <button
             type="button"

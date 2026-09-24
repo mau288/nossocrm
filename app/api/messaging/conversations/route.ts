@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { isAllowedOrigin } from '@/lib/security/sameOrigin';
-import { normalizePhoneE164 } from '@/lib/phone';
+import { normalizePhoneE164, normalizeWhatsAppPhoneE164 } from '@/lib/phone';
 import type { ConversationStatus, ConversationPriority } from '@/lib/messaging/types';
 
 function json<T>(body: T, status = 200): Response {
@@ -41,6 +41,7 @@ export async function GET(req: Request) {
   const assignedUserId = url.searchParams.get('assignedUserId');
   const hasUnread = url.searchParams.get('hasUnread');
   const search = url.searchParams.get('search');
+  const contactId = url.searchParams.get('contactId');
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
   const offset = parseInt(url.searchParams.get('offset') || '0');
 
@@ -93,6 +94,28 @@ export async function GET(req: Request) {
 
   if (search) {
     query = query.or(`external_contact_name.ilike.%${search}%,external_contact_id.ilike.%${search}%`);
+  }
+
+  // Ao abrir Mensagem a partir de um negócio, priorizamos a conversa daquele
+  // contato. Algumas conversas antigas podem ainda não ter contact_id, então
+  // também aceitamos o telefone normalizado como fallback, na mesma organização.
+  if (contactId) {
+    const { data: contact, error: contactError } = await supabase
+      .from('contacts')
+      .select('id, phone')
+      .eq('id', contactId)
+      .eq('organization_id', profile.organization_id)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (!contact || contactError) {
+      return json({ error: 'Contact not found' }, 404);
+    }
+
+    const normalizedPhone = normalizePhoneE164(contact.phone);
+    const contactFilters = [`contact_id.eq.${contact.id}`];
+    if (normalizedPhone) contactFilters.push(`external_contact_id.eq.${normalizedPhone}`);
+    query = query.or(contactFilters.join(','));
   }
 
   // Ordering and pagination
@@ -181,7 +204,7 @@ export async function POST(req: Request) {
   // Normalizar telefone se for WhatsApp
   let normalizedContactId = body.externalContactId;
   if (channel.channel_type === 'whatsapp') {
-    const normalized = normalizePhoneE164(body.externalContactId);
+    const normalized = normalizeWhatsAppPhoneE164(body.externalContactId);
     if (normalized) {
       normalizedContactId = normalized;
     }

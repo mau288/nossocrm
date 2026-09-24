@@ -687,15 +687,25 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
                     {contact?.phone && (
                       <button
                         type="button"
-                        onClick={() => {
-                          // Navigate to messaging with contact info for new conversation
+                        onClick={async () => {
                           const params = new URLSearchParams({
-                            newConversation: 'true',
                             contactId: contact.id,
                             contactName: contact.name || '',
                             contactPhone: contact.phone || '',
                           });
-                          router.push(`/messaging?${params.toString()}`);
+                          try {
+                            // Resolve antes de sair do card: quando já existe conversa,
+                            // usamos a rota dedicada sem passar pela lista geral.
+                            const response = await fetch(
+                              `/api/messaging/conversations?contactId=${encodeURIComponent(contact.id)}&limit=1`,
+                              { credentials: 'same-origin' }
+                            );
+                            const payload = await response.json().catch(() => null) as { conversations?: Array<{ id: string }> } | null;
+                            const conversationId = response.ok ? payload?.conversations?.[0]?.id : undefined;
+                            router.push(conversationId ? `/messaging/${conversationId}` : `/messaging/new?${params.toString()}`);
+                          } catch {
+                            router.push(`/messaging/new?${params.toString()}`);
+                          }
                           onClose();
                         }}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10 hover:bg-green-100 dark:hover:bg-green-500/20 rounded-lg transition-colors"

@@ -3,6 +3,7 @@ import { Download, Upload, FileDown } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/context/ToastContext';
 import { stringifyCsv, withUtf8Bom, type CsvDelimiter } from '@/lib/utils/csv';
+import { useBoards } from '@/lib/query/hooks/useBoardsQuery';
 
 type Panel = 'export' | 'import';
 
@@ -53,6 +54,7 @@ export function ContactsImportExportModal(props: {
   const { isOpen, onClose, exportParams } = props;
   const { addToast, showToast } = useToast();
   const toast = addToast || showToast;
+  const { data: boards = [] } = useBoards({ enabled: isOpen });
 
   const [panel, setPanel] = useState<Panel>('export');
   const [delimiter, setDelimiter] = useState<'auto' | CsvDelimiter>('auto');
@@ -63,6 +65,9 @@ export function ContactsImportExportModal(props: {
     'upsert_by_email'
   );
   const [createCompanies, setCreateCompanies] = useState(true);
+  const [createDeals, setCreateDeals] = useState(false);
+  const [dealBoardId, setDealBoardId] = useState('');
+  const [dealStageId, setDealStageId] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
 
@@ -137,6 +142,10 @@ export function ContactsImportExportModal(props: {
       toast?.('Selecione um arquivo CSV.', 'error');
       return;
     }
+    if (createDeals && (!dealBoardId || !dealStageId)) {
+      toast?.('Selecione o pipeline e a etapa inicial para os negócios importados.', 'error');
+      return;
+    }
     setIsImporting(true);
     setImportResult(null);
     try {
@@ -144,6 +153,11 @@ export function ContactsImportExportModal(props: {
       fd.append('file', file);
       fd.append('mode', mode);
       fd.append('createCompanies', String(createCompanies));
+      fd.append('createDeals', String(createDeals));
+      if (createDeals) {
+        fd.append('dealBoardId', dealBoardId);
+        fd.append('dealStageId', dealStageId);
+      }
       if (delimiter !== 'auto') fd.append('delimiter', delimiter);
 
       const res = await fetch('/api/contacts/import', { method: 'POST', body: fd });
@@ -154,7 +168,7 @@ export function ContactsImportExportModal(props: {
       setImportResult(data);
       const totals = data?.totals;
       toast?.(
-        `Import concluído: ${totals?.created ?? 0} criados, ${totals?.updated ?? 0} atualizados, ${totals?.skipped ?? 0} ignorados, ${totals?.errors ?? 0} erros.`,
+        `Import concluído: ${totals?.created ?? 0} contatos criados, ${totals?.updated ?? 0} atualizados, ${totals?.dealsCreated ?? 0} negócios criados, ${totals?.skipped ?? 0} ignorados, ${totals?.errors ?? 0} erros.`,
         (totals?.errors ?? 0) > 0 ? 'warning' : 'success'
       );
     } catch (e) {
@@ -333,6 +347,56 @@ export function ContactsImportExportModal(props: {
           </div>
           </div>
 
+          <div className="space-y-3 rounded-lg border border-slate-200 dark:border-white/10 p-3">
+            <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={createDeals}
+                onChange={e => setCreateDeals(e.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                <b>Criar um negócio para cada contato importado</b>
+                <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                  Os cards já entram no pipeline e na etapa escolhidos. Linhas ignoradas por duplicidade não criam negócio.
+                </span>
+              </span>
+            </label>
+
+            {createDeals && (
+              <div className="grid gap-3 pl-6 sm:grid-cols-2">
+                <label className="space-y-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Pipeline
+                  <select
+                    value={dealBoardId}
+                    onChange={e => {
+                      const nextBoardId = e.target.value;
+                      const board = boards.find(item => item.id === nextBoardId);
+                      setDealBoardId(nextBoardId);
+                      setDealStageId(board?.stages?.[0]?.id ?? '');
+                    }}
+                    className="block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm font-normal dark:border-white/10 dark:bg-white/5"
+                  >
+                    <option value="">Selecione o pipeline</option>
+                    {boards.map(board => <option key={board.id} value={board.id}>{board.name}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Etapa inicial
+                  <select
+                    value={dealStageId}
+                    onChange={e => setDealStageId(e.target.value)}
+                    disabled={!dealBoardId}
+                    className="block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm font-normal disabled:opacity-50 dark:border-white/10 dark:bg-white/5"
+                  >
+                    <option value="">Selecione a etapa</option>
+                    {(boards.find(board => board.id === dealBoardId)?.stages ?? []).map(stage => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -353,6 +417,7 @@ export function ContactsImportExportModal(props: {
               <div className="text-xs text-slate-600 dark:text-slate-300">
                 <b>Resumo:</b> {importResult.totals?.created ?? 0} criados •{' '}
                 {importResult.totals?.updated ?? 0} atualizados •{' '}
+                {importResult.totals?.dealsCreated ?? 0} negócios criados •{' '}
                 {importResult.totals?.skipped ?? 0} ignorados •{' '}
                 {importResult.totals?.errors ?? 0} erros
               </div>

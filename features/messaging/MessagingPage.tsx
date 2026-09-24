@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { MessageSquare, User, CheckCircle, MoreVertical, LinkIcon, Trash2, RotateCcw, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,7 @@ import { ContactPanel } from './components/ContactPanel';
 import { ContactLinkModal } from './components/Modals/ContactLinkModal';
 import { SendToFunnelModal } from './components/Modals/SendToFunnelModal';
 import { PullToWhatsAppModal } from './components/Modals/PullToWhatsAppModal';
+import { NewConversationModal } from './components/Modals/NewConversationModal';
 import { ChannelIndicator } from './components/ChannelIndicator';
 import { WindowExpiryBadge } from './components/WindowExpiryBadge';
 import { MessageSearchBar } from './components/MessageSearchBar';
@@ -43,12 +44,20 @@ import type { ConversationView } from '@/lib/messaging/types';
 
 interface MessagingPageProps {
   initialConversationId?: string;
+  startConversationFor?: {
+    id: string;
+    name?: string;
+    phone?: string;
+  };
 }
 
-export function MessagingPage({ initialConversationId }: MessagingPageProps = {}) {
+export function MessagingPage({ initialConversationId, startConversationFor }: MessagingPageProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const conversationIdParam = searchParams.get('id');
+  const contactIdParam = startConversationFor?.id || searchParams.get('contactId');
+  const contactNameParam = startConversationFor?.name || searchParams.get('contactName') || '';
+  const contactPhoneParam = startConversationFor?.phone || searchParams.get('contactPhone') || '';
   const queryClient = useQueryClient();
   const { profile } = useAuth();
   const { getPresence } = useContactPresence();
@@ -61,10 +70,28 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   const [isHandoffModalOpen, setIsHandoffModalOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [isNewConversationOpen, setIsNewConversationOpen] = useState(Boolean(startConversationFor?.id));
+  const [handledContactId, setHandledContactId] = useState<string | null>(startConversationFor?.id || null);
   const [replyToMessage, setReplyToMessage] = useState<import('@/lib/messaging/types').MessagingMessage | null>(null);
+  const counterpartRepairStarted = useRef(false);
 
   // Subscribe to realtime updates
   useRealtimeSyncMessaging();
+
+  // Corrige somente identidades antigas que foram preenchidas por um evento do
+  // prÃ³prio canal. Nomes editados manualmente pelo time sÃ£o preservados.
+  useEffect(() => {
+    if (!profile?.organization_id || counterpartRepairStarted.current) return;
+    counterpartRepairStarted.current = true;
+    void fetch('/api/messaging/conversations/repair-counterparts', {
+      method: 'POST',
+      credentials: 'same-origin',
+    })
+      .then((response) => response.ok
+        ? queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all })
+        : undefined)
+      .catch(() => undefined);
+  }, [profile?.organization_id, queryClient]);
 
   // Fetch selected conversation details
   const { data: selectedConversation, isLoading: isConversationLoading } = useConversation(selectedConversationId);
@@ -74,6 +101,60 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   const { mutate: resolveConversation } = useResolveConversation();
   const { mutate: reopenConversation } = useReopenConversation();
   const { mutate: deleteConversation, isPending: isDeleting } = useDeleteConversation();
+
+  // Ao entrar pelo card de um deal, abre a conversa mais recente do contato.
+  // Sem conversa prévia, deixa o modal iniciar o canal adequado já preenchido.
+  useEffect(() => {
+    if (!contactIdParam || startConversationFor?.id || handledContactId === contactIdParam) return;
+    let active = true;
+    setHandledContactId(contactIdParam);
+
+    const openContactConversation = async () => {
+      try {
+        const response = await fetch(
+          `/api/messaging/conversations?contactId=${encodeURIComponent(contactIdParam)}&limit=1`,
+          { credentials: 'same-origin' }
+        );
+        const payload = await response.json().catch(() => null) as { conversations?: Array<{ id: string }> } | null;
+        if (!active) return;
+
+        const conversationId = response.ok ? payload?.conversations?.[0]?.id : undefined;
+        if (conversationId) {
+          setSelectedConversationId(conversationId);
+          router.replace(`/messaging/${conversationId}`, { scroll: false });
+        } else {
+          setIsNewConversationOpen(true);
+        }
+      } catch {
+        if (active) setIsNewConversationOpen(true);
+      }
+    };
+    void openContactConversation();
+    return () => { active = false; };
+  }, [contactIdParam, handledContactId, router, startConversationFor?.id]);
+
+  const handleCreateConversation = useCallback(async (params: { channelId: string; phoneNumber: string; contactName?: string; contactId?: string }) => {
+    const response = await fetch('/api/messaging/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channelId: params.channelId,
+        externalContactId: params.phoneNumber,
+        externalContactName: params.contactName,
+        contactId: params.contactId,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    const conversationId = data?.conversation?.id ?? data?.conversationId;
+    if (!response.ok && !(response.status === 409 && conversationId)) {
+      throw new Error(data?.error || 'Não foi possível iniciar a conversa.');
+    }
+    if (!conversationId) throw new Error('A conversa foi criada sem identificador.');
+    await queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all });
+    setIsNewConversationOpen(false);
+    setSelectedConversationId(conversationId);
+    router.replace(`/messaging/${conversationId}`, { scroll: false });
+  }, [queryClient, router]);
 
   // Handle delete conversation
   const handleDeleteConversation = useCallback(() => {
@@ -212,7 +293,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
               </div>
               <div className="flex-1 min-w-0">
                 <h2 className="font-semibold text-slate-900 dark:text-white truncate">
-                  {selectedConversation.contactName || selectedConversation.externalContactName || 'Contato desconhecido'}
+                  {selectedConversation.externalContactName || selectedConversation.contactName || 'Contato desconhecido'}
                 </h2>
                 <div className="flex items-center gap-2">
                   <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -343,6 +424,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
           onViewDeals={handleViewDeals}
           onSendToFunnel={() => setIsFunnelModalOpen(true)}
           onPullToWhatsApp={() => setIsHandoffModalOpen(true)}
+          onOpenWithAnotherChip={() => setIsNewConversationOpen(true)}
         />
       </div>
 
@@ -353,8 +435,8 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
           onClose={() => setIsHandoffModalOpen(false)}
           contactId={selectedConversation.contactId}
           contactName={
-            selectedConversation.contactName ||
             selectedConversation.externalContactName ||
+            selectedConversation.contactName ||
             'Contato'
           }
           originTag={`origem:${selectedConversation.channelType}`}
@@ -369,14 +451,26 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
           onClose={() => setIsFunnelModalOpen(false)}
           contactId={selectedConversation.contactId}
           contactName={
-            selectedConversation.contactName ||
             selectedConversation.externalContactName ||
+            selectedConversation.contactName ||
             'Contato'
           }
           conversationId={selectedConversation.id}
           channelName={selectedConversation.channelName}
         />
       )}
+
+      <NewConversationModal
+        isOpen={isNewConversationOpen}
+        onClose={() => {
+          setIsNewConversationOpen(false);
+          if (contactIdParam) router.replace('/messaging', { scroll: false });
+        }}
+        onCreateConversation={handleCreateConversation}
+        defaultContactId={contactIdParam || undefined}
+        defaultContactName={contactNameParam || undefined}
+        defaultContactPhone={contactPhoneParam || undefined}
+      />
 
       {/* Contact Link Modal */}
       <ContactLinkModal

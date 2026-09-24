@@ -24,6 +24,7 @@ import { useMergeContactsMutation } from '@/lib/query/hooks/useDuplicateContacts
 import { usePersistedState } from '@/hooks/usePersistedState';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/context/ToastContext';
+import { normalizeWhatsAppPhoneE164 } from '@/lib/phone';
 
 interface PullToWhatsAppModalProps {
   isOpen: boolean;
@@ -39,11 +40,11 @@ interface PullToWhatsAppModalProps {
 const DEFAULT_TEMPLATE =
   'Oi {nome}, aqui é da Ark Academy 👋 vim do seu Direct no Instagram, vou te ajudar por aqui!';
 
-/** Normaliza para +55DDDNNNNNNNN (formato que o espelho grava). */
+/** Normaliza para E.164 e completa o nono dígito de celular brasileiro. */
 function normalizePhone(raw: string): string | null {
   const digits = raw.replace(/[^0-9]/g, '');
   if (digits.length < 10) return null;
-  return `+${digits.length <= 11 ? `55${digits}` : digits}`;
+  return normalizeWhatsAppPhoneE164(digits.length <= 11 ? `55${digits}` : digits) || null;
 }
 
 export const PullToWhatsAppModal: React.FC<PullToWhatsAppModalProps> = ({

@@ -81,6 +81,25 @@ export const ContactsPage: React.FC = () => {
         router.push(`/boards?deal=${dealId}`);
     };
 
+    const startConversation = async (contact: { id: string; name?: string; phone?: string }) => {
+        const params = new URLSearchParams({
+            contactId: contact.id,
+            contactName: contact.name || '',
+            contactPhone: contact.phone || '',
+        });
+        try {
+            const response = await fetch(
+                `/api/messaging/conversations?contactId=${encodeURIComponent(contact.id)}&limit=1`,
+                { credentials: 'same-origin' }
+            );
+            const payload = await response.json().catch(() => null) as { conversations?: Array<{ id: string }> } | null;
+            const conversationId = response.ok ? payload?.conversations?.[0]?.id : undefined;
+            router.push(conversationId ? `/messaging/${conversationId}` : `/messaging/new?${params.toString()}`);
+        } catch {
+            router.push(`/messaging/new?${params.toString()}`);
+        }
+    };
+
     return (
         <div className="space-y-6 p-8 max-w-[1600px] mx-auto">
             <ContactsHeader
@@ -183,6 +202,7 @@ export const ContactsPage: React.FC = () => {
                 onSort={controller.handleSort}
                 duplicateContactIds={duplicateContactIds}
                 onAddContact={controller.openCreateModal}
+                onMessageContact={startConversation}
             />
 
             {/* T021: Pagination Controls */}
