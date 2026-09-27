@@ -9,7 +9,7 @@ declare global {
     flush(): Int8Array;
   }};
 }
-import { Send, Paperclip, Smile, Clock, FileText, X, Loader2, Image, File as FileIcon, Mic, Square, Reply } from 'lucide-react';
+import { Send, Paperclip, Smile, Clock, FileText, X, Loader2, Image, File as FileIcon, Mic, Square, Reply, Sticker } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { type EmojiClickData, Theme } from 'emoji-picker-react';
 
@@ -27,6 +27,7 @@ import {
   useSendTemplateMutation,
 } from '@/lib/query/hooks/useTemplatesQuery';
 import { TemplateSelector, type TemplateData } from './TemplateSelector';
+import { StickerTray } from './StickerTray';
 import type { ConversationView, MessageContent, MessagingMessage } from '@/lib/messaging/types';
 
 interface MessageInputProps {
@@ -39,6 +40,26 @@ interface PendingMedia {
   file: File;
   preview: string | null;
   mediaType: 'image' | 'video' | 'audio' | 'document';
+}
+
+/** ARK: converte uma imagem em figurinha do WhatsApp (webp 512x512, proporcao preservada). */
+async function toStickerWebp(file: File): Promise<File> {
+  const bitmap = await createImageBitmap(file);
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Navegador sem suporte a canvas');
+  const scale = Math.min(size / bitmap.width, size / bitmap.height);
+  const w = bitmap.width * scale;
+  const h = bitmap.height * scale;
+  ctx.clearRect(0, 0, size, size);
+  ctx.drawImage(bitmap, (size - w) / 2, (size - h) / 2, w, h);
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Falha ao converter a imagem'))), 'image/webp', 0.9),
+  );
+  return new File([blob], `figurinha-${Date.now()}.webp`, { type: 'image/webp' });
 }
 
 const ACCEPTED_TYPES = [
@@ -130,6 +151,9 @@ function formatFileSize(bytes: number): string {
 export function MessageInput({ conversation, replyTo, onCancelReply }: MessageInputProps) {
   const [text, setText] = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
+  // ARK: figurinhas
+  const [showStickers, setShowStickers] = useState(false);
+  const [asSticker, setAsSticker] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -178,6 +202,18 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
       }
     };
   }, []);
+
+  // ARK: gaveta de figurinhas fecha ao clicar fora (usa o mesmo container do emoji)
+  useEffect(() => {
+    if (!showStickers) return;
+    const onDown = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setShowStickers(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showStickers]);
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -384,18 +420,31 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
   const handleSendMedia = useCallback(async () => {
     if (!pendingMedia || isDisabled) return;
 
+    const sendAsSticker = asSticker && pendingMedia.mediaType === 'image';
+    let fileToSend = pendingMedia.file;
+    if (sendAsSticker) {
+      try {
+        fileToSend = await toStickerWebp(pendingMedia.file);
+      } catch (err) {
+        console.error('[MessageInput] Falha ao gerar figurinha:', err);
+        return;
+      }
+    }
+
     uploadMedia.mutate(
-      { file: pendingMedia.file, conversationId: conversation.id },
+      { file: fileToSend, conversationId: conversation.id },
       {
         onSuccess: (result) => {
-          const content: MessageContent = {
-            type: result.mediaType,
-            mediaUrl: result.mediaUrl,
-            mimeType: result.mimeType,
-            fileName: result.fileName,
-            fileSize: result.fileSize,
-            ...(text.trim() ? { caption: text.trim() } : {}),
-          } as MessageContent;
+          const content: MessageContent = (sendAsSticker
+            ? { type: 'sticker', mediaUrl: result.mediaUrl, mimeType: 'image/webp' }
+            : {
+                type: result.mediaType,
+                mediaUrl: result.mediaUrl,
+                mimeType: result.mimeType,
+                fileName: result.fileName,
+                fileSize: result.fileSize,
+                ...(text.trim() ? { caption: text.trim() } : {}),
+              }) as MessageContent;
 
           sendMessage.mutate(
             { conversationId: conversation.id, content, replyToMessageId: replyTo?.id },
@@ -403,6 +452,7 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
               onSuccess: () => {
                 setText('');
                 clearMedia();
+                setAsSticker(false);
                 onCancelReply?.();
                 textareaRef.current?.focus();
               },
@@ -411,7 +461,22 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
         },
       }
     );
-  }, [pendingMedia, isDisabled, uploadMedia, conversation.id, text, sendMessage]);
+  }, [pendingMedia, isDisabled, uploadMedia, conversation.id, text, sendMessage, asSticker]);
+
+  // ARK: figurinha escolhida na gaveta sai na hora
+  const handlePickSticker = useCallback(
+    (mediaUrl: string) => {
+      if (isDisabled) return;
+      setShowStickers(false);
+      sendMessage.mutate({
+        conversationId: conversation.id,
+        content: { type: 'sticker', mediaUrl, mimeType: 'image/webp' } as MessageContent,
+        replyToMessageId: replyTo?.id,
+      });
+      onCancelReply?.();
+    },
+    [isDisabled, sendMessage, conversation.id, replyTo?.id, onCancelReply],
+  );
 
   const handleTemplateSelect = useCallback(
     (template: TemplateData, params?: Record<string, string>) => {
@@ -631,6 +696,12 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
               <p className="text-xs text-slate-400">
                 {formatFileSize(pendingMedia.file.size)}
               </p>
+              {pendingMedia.mediaType === 'image' && (
+                <label className="mt-1 inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                  <input type="checkbox" checked={asSticker} onChange={(e) => setAsSticker(e.target.checked)} />
+                  Enviar como figurinha
+                </label>
+              )}
             </div>
             <button
               type="button"
@@ -723,6 +794,28 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
               aria-label="Emojis"
             >
               <Smile className="w-5 h-5" />
+            </button>
+            {showStickers && (
+              <div className="absolute bottom-full right-0 mb-2 z-50">
+                <StickerTray onPick={handlePickSticker} />
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setShowEmojiPicker(false);
+                setShowStickers((prev) => !prev);
+              }}
+              className={cn(
+                'p-2 rounded-xl transition-colors',
+                showStickers
+                  ? 'text-primary-500'
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+              )}
+              title="Figurinhas"
+              aria-label="Figurinhas"
+            >
+              <Sticker className="w-5 h-5" />
             </button>
             <button
               type="button"
