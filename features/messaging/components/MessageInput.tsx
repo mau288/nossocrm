@@ -223,6 +223,24 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
     e.target.value = '';
   }, []);
 
+  // ARK: colar imagem direto (print, imagem copiada) sem passar pelo clipe de anexo.
+  // Texto colado segue o caminho normal; so interceptamos quando ha imagem na area de transferencia.
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+      const blob = item.getAsFile();
+      if (!blob) continue;
+      e.preventDefault();
+      const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+      const file = new File([blob], `colado-${Date.now()}.${ext}`, { type: blob.type });
+      if (pendingMediaRef.current?.preview) URL.revokeObjectURL(pendingMediaRef.current.preview);
+      setPendingMedia({ file, preview: URL.createObjectURL(file), mediaType: 'image' });
+      return;
+    }
+  }, []);
+
   // Stable callback — reads latest pendingMedia via ref, no dep on the state value.
   const clearMedia = useCallback(() => {
     if (pendingMediaRef.current?.preview) {
@@ -664,7 +682,8 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder={pendingMedia ? 'Adicionar legenda (opcional)...' : 'Digite uma mensagem...'}
+            onPaste={handlePaste}
+            placeholder={pendingMedia ? 'Adicionar legenda (opcional)...' : 'Digite uma mensagem... (Ctrl+V cola imagem)'}
             disabled={isDisabled}
             rows={1}
             aria-label={pendingMedia ? 'Adicionar legenda (opcional)' : 'Digite uma mensagem'}

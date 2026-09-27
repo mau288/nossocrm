@@ -9,6 +9,15 @@ import { MessageBubble } from './MessageBubble';
 import { useMessagesInfinite } from '@/lib/query/hooks/useMessagesQuery';
 import type { MessagingMessage } from '@/lib/messaging/types';
 
+/** Tipos de pacote da Evolution que nao sao mensagem visivel. */
+const HIDDEN_WHATSAPP_TYPES = new Set([
+  'secretEncryptedMessage', // edicao (a original ganha "editada")
+  'reactionMessage', // reacao (vira pilula na mensagem-alvo)
+  'albumMessage', // aviso "vem N fotos" — as fotos chegam como mensagens proprias
+  'senderKeyDistributionMessage',
+  'protocolMessage',
+]);
+
 interface MessageThreadProps {
   conversationId: string;
   /** Contact presence status from useContactPresence */
@@ -57,8 +66,12 @@ export function MessageThread({ conversationId, presenceStatus, onReply }: Messa
   // Flatten pages into single message array (chronological order).
   // Filter out reaction messages — they are displayed as pills on the target
   // message bubble, not as standalone bubbles in the thread.
+  // ARK: tambem ficam de fora os pacotes internos do WhatsApp que o espelho antigo gravou como
+  // texto cru ("[secretEncryptedMessage]", "[mensagem]" de reacao, aviso de album...).
   const messages = (data?.pages.flatMap((p) => p.messages) ?? []).filter(
-    (m) => m.contentType !== 'reaction',
+    (m) =>
+      m.contentType !== 'reaction' &&
+      !HIDDEN_WHATSAPP_TYPES.has(String(m.metadata?.message_type ?? '')),
   );
 
   // Scroll to bottom on new messages (not when loading older)
