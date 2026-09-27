@@ -2,7 +2,7 @@
 
 import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Clock, AlertCircle, FileText, MapPin, Play, Pause, Image, Reply } from 'lucide-react';
+import { Check, CheckCheck, Clock, AlertCircle, FileText, MapPin, Play, Pause, Image, Reply, Video } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { sanitizeUrl } from '@/lib/utils/sanitize';
 import { useSendMessage } from '@/lib/query/hooks/useMessagingMessagesQuery';
@@ -212,12 +212,20 @@ const MessageContent = memo(function MessageContent({ message }: { message: Mess
       const imageContent = content as ImageContent;
       return (
         <div className="space-y-1">
-          {sanitizeUrl(imageContent.mediaUrl) && (
-            <img
-              src={sanitizeUrl(imageContent.mediaUrl)}
-              alt={imageContent.caption || 'Imagem'}
-              className="max-w-[240px] rounded-lg"
-            />
+          {sanitizeUrl(imageContent.mediaUrl) ? (
+            <a href={sanitizeUrl(imageContent.mediaUrl)} target="_blank" rel="noopener noreferrer" title="Abrir em tamanho real">
+              <img
+                src={sanitizeUrl(imageContent.mediaUrl)}
+                alt={imageContent.caption || 'Imagem'}
+                className="max-w-[240px] rounded-lg"
+                loading="lazy"
+              />
+            </a>
+          ) : (
+            <div className="flex items-center gap-2 opacity-80">
+              <Image className="w-5 h-5" />
+              <span>Imagem (arquivo indisponível)</span>
+            </div>
           )}
           {imageContent.caption && (
             <p className="whitespace-pre-wrap break-words">{imageContent.caption}</p>
@@ -270,13 +278,35 @@ const MessageContent = memo(function MessageContent({ message }: { message: Mess
       return <AudioPlayer content={audioContent} isOutbound={isOutbound} />;
     }
 
-    case 'video':
+    case 'video': {
+      const v = content as { mediaUrl?: string; caption?: string; tooLarge?: boolean; fileSize?: number };
+      const videoUrl = sanitizeUrl(v.mediaUrl ?? '');
+      if (!videoUrl) {
+        const mb = v.fileSize ? Math.round(v.fileSize / 1048576) : 0;
+        return (
+          <div className="flex items-center gap-2 opacity-80">
+            <Video className="w-5 h-5" />
+            <span>
+              {v.tooLarge
+                ? `Vídeo grande${mb ? ` (${mb} MB)` : ''} — veja no WhatsApp`
+                : 'Vídeo (arquivo indisponível)'}
+            </span>
+          </div>
+        );
+      }
       return (
-        <div className="flex items-center gap-2">
-          <Image className="w-5 h-5" />
-          <span>Vídeo</span>
+        <div className="space-y-1">
+          <video
+            src={videoUrl}
+            controls
+            preload="metadata"
+            playsInline
+            className="max-w-[280px] max-h-80 rounded-lg bg-black"
+          />
+          {v.caption && <p className="whitespace-pre-wrap break-words">{v.caption}</p>}
         </div>
       );
+    }
 
     case 'sticker':
       return (
@@ -512,6 +542,18 @@ export const MessageBubble = memo(function MessageBubble({
               isOutbound ? 'text-white/70' : 'text-slate-400',
             )}
           >
+            {Boolean(message.metadata?.edited) && (
+              <span
+                className="text-[10px] italic"
+                title={
+                  message.metadata?.original_text
+                    ? `Antes: ${String(message.metadata?.original_text)}`
+                    : 'Mensagem editada no WhatsApp'
+                }
+              >
+                editada
+              </span>
+            )}
             <span className="text-[10px]">{time}</span>
             {isOutbound && <StatusIcon status={message.status} />}
           </div>
