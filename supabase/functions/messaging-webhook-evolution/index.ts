@@ -45,6 +45,13 @@ interface EvolutionMessageContent {
   documentMessage?: { fileName?: string };
   stickerMessage?: Record<string, unknown>;
   locationMessage?: { degreesLatitude?: number; degreesLongitude?: number };
+  // ARK: tipos que antes viravam etiqueta crua na conversa
+  reactionMessage?: { key?: { id?: string }; text?: string };
+  secretEncryptedMessage?: { secretEncType?: number | string; targetMessageKey?: { id?: string } };
+  templateMessage?: Record<string, unknown>;
+  groupInviteMessage?: { groupName?: string; caption?: string };
+  /** Quando a instancia esta com webhookBase64 ligado, o arquivo vem embutido aqui */
+  base64?: string;
 }
 
 interface EvolutionMessageData {
@@ -180,6 +187,46 @@ function normalizeRemoteJid(remoteJid: string, altJid?: string): string | null {
 
 const MEDIA_CONTENT_TYPES = new Set(["audio", "image", "video", "document", "sticker"]);
 
+/** Acima disso o arquivo nao e copiado para o storage (plano gratuito = 1 GB no total). */
+const MAX_MEDIA_BYTES = 30 * 1024 * 1024;
+
+/** Tipos que nao sao mensagem visivel: nao geram bolha na conversa. */
+const SILENT_MESSAGE_TYPES = new Set([
+  "albumMessage", "senderKeyDistributionMessage", "protocolMessage", "messageContextInfo",
+]);
+
+/**
+ * Copia do payload para o log de auditoria SEM o arquivo embutido.
+ * O log guardava o pacote bruto: com webhookBase64 ligado cada midia (inclusive de grupo, que
+ * nem e processada) gravava ate 13 MB. Em setembro/2026 isso levou o banco a 755 MB no plano
+ * de 500 MB. Nada le esse payload; o que importa no log e o id do evento (deduplicacao).
+ */
+function slimForLog(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") {
+    return value.length > 8000 ? `[${value.length} caracteres omitidos]` : value;
+  }
+  if (value === null || typeof value !== "object" || depth > 10) return value;
+  if (Array.isArray(value)) return value.map((v) => slimForLog(v, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (k === "base64" || k === "jpegThumbnail" || k === "pngThumbnail") {
+      out[k] = "[omitido]";
+      continue;
+    }
+    out[k] = slimForLog(v, depth + 1);
+  }
+  return out;
+}
+
+function readFileLength(v: unknown): number | undefined {
+  if (typeof v === "number") return v;
+  if (typeof v === "string" && /^\d+$/.test(v)) return Number(v);
+  if (v && typeof v === "object" && typeof (v as { low?: unknown }).low === "number") {
+    return (v as { low: number }).low;
+  }
+  return undefined;
+}
+
 const EXT_BY_MIME: Record<string, string> = {
   "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/aac": "aac", "audio/amr": "amr",
   "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
@@ -192,25 +239,47 @@ async function fetchAndStoreEvolutionMedia(
   organizationId: string,
   data: EvolutionMessageData,
 ): Promise<Record<string, unknown> | null> {
-  const serverUrl = (credentials?.serverUrl ?? "").replace(/\/+$/, "");
-  const instance = credentials?.instanceName ?? "";
-  const apiKey = credentials?.apiKey ?? "";
-  if (!serverUrl || !instance || !apiKey) {
-    console.warn("[Evolution] Canal sem credenciais completas — midia nao baixada");
-    return null;
+  // Metadados do proprio pacote (tamanho, tipo, nome) — disponiveis antes de baixar qualquer coisa
+  const typed = (data.message as Record<string, unknown> | undefined)?.[data.messageType ?? ""] as
+    | Record<string, unknown>
+    | undefined;
+  const declaredSize = readFileLength(typed?.fileLength);
+  if (declaredSize !== undefined && declaredSize > MAX_MEDIA_BYTES) {
+    console.warn(`[Evolution] Midia de ${declaredSize} bytes acima do teto — nao copiada (${data.key.id})`);
+    return { tooLarge: true, fileSize: declaredSize, mimeType: String(typed?.mimetype ?? "").split(";")[0].trim() };
   }
 
-  const resp = await fetch(`${serverUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instance)}`, {
-    method: "POST",
-    headers: { apikey: apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({ message: { key: { id: data.key.id } }, convertToMp4: false }),
-  });
-  if (!resp.ok) {
-    console.warn(`[Evolution] getBase64FromMediaMessage ${resp.status} para ${data.key.id}`);
-    return null;
+  let media: { base64?: string; mimetype?: string; fileName?: string; size?: { fileLength?: { low?: number } } } = {};
+  if (data.message?.base64) {
+    // Instancia com webhookBase64 ligado: o arquivo ja veio, nao precisa de outra chamada
+    media = {
+      base64: data.message.base64,
+      mimetype: typeof typed?.mimetype === "string" ? typed.mimetype : undefined,
+      fileName: typeof typed?.fileName === "string" ? typed.fileName : undefined,
+    };
+  } else {
+    const serverUrl = (credentials?.serverUrl ?? "").replace(/\/+$/, "");
+    const instance = credentials?.instanceName ?? "";
+    const apiKey = credentials?.apiKey ?? "";
+    if (!serverUrl || !instance || !apiKey) {
+      console.warn("[Evolution] Canal sem credenciais completas — midia nao baixada");
+      return null;
+    }
+    const resp = await fetch(`${serverUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instance)}`, {
+      method: "POST",
+      headers: { apikey: apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ message: { key: { id: data.key.id } }, convertToMp4: false }),
+    });
+    if (!resp.ok) {
+      console.warn(`[Evolution] getBase64FromMediaMessage ${resp.status} para ${data.key.id}`);
+      return null;
+    }
+    media = await resp.json();
   }
-  const media = await resp.json() as { base64?: string; mimetype?: string; fileName?: string; size?: { fileLength?: { low?: number } } };
   if (!media.base64) return null;
+  if (media.base64.length * 0.75 > MAX_MEDIA_BYTES) {
+    return { tooLarge: true, fileSize: Math.round(media.base64.length * 0.75) };
+  }
 
   const mimeType = (media.mimetype || "application/octet-stream").split(";")[0].trim();
   const binary = atob(media.base64);
@@ -236,7 +305,7 @@ async function fetchAndStoreEvolutionMedia(
     mediaUrl: pub.publicUrl,
     mimeType,
     fileName: media.fileName || `${data.key.id}.${ext}`,
-    ...(media.size?.fileLength?.low ? { fileSize: media.size.fileLength.low } : {}),
+    fileSize: media.size?.fileLength?.low ?? declaredSize ?? bytes.length,
     ...(seconds !== undefined ? { duration: seconds } : {}),
   };
 }
@@ -264,6 +333,10 @@ function extractMessageText(data: EvolutionMessageData): string {
       return (message.documentMessage as Record<string, unknown>)?.fileName as string || "[documento]";
     case "stickerMessage":
       return "[sticker]";
+    case "templateMessage":
+      return extractTemplateText(message.templateMessage) || "[modelo]";
+    case "groupInviteMessage":
+      return `Convite para o grupo ${message.groupInviteMessage?.groupName ?? ""}`.trim();
     case "locationMessage": {
       const lat = message.locationMessage?.degreesLatitude ?? 0;
       const lng = message.locationMessage?.degreesLongitude ?? 0;
@@ -272,6 +345,17 @@ function extractMessageText(data: EvolutionMessageData): string {
     default:
       return "[mensagem]";
   }
+}
+
+/** Texto de uma mensagem-modelo (botoes do bot): o corpo fica dentro do template hidratado. */
+function extractTemplateText(tpl: Record<string, unknown> | undefined): string {
+  if (!tpl) return "";
+  const hyd = (tpl.hydratedTemplate ?? tpl.hydratedFourRowTemplate ?? tpl.fourRowTemplate) as
+    | Record<string, unknown>
+    | undefined;
+  const parts = [hyd?.hydratedTitleText, hyd?.hydratedContentText, hyd?.hydratedFooterText]
+    .filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+  return parts.join("\n");
 }
 
 /**
@@ -305,6 +389,24 @@ function extractMessageContent(data: EvolutionMessageData): { contentType: strin
     }
     case "stickerMessage":
       return { contentType: "sticker", content: { type: "sticker", mediaUrl: "" } };
+    case "reactionMessage":
+      // O trigger do banco soma o emoji em metadata.reactions da mensagem-alvo; a tela
+      // mostra como pilula e esconde a linha da reacao.
+      return {
+        contentType: "reaction",
+        content: {
+          type: "reaction",
+          emoji: message.reactionMessage?.text ?? "",
+          messageId: message.reactionMessage?.key?.id ?? "",
+        },
+      };
+    case "templateMessage":
+      return { contentType: "text", content: { type: "text", text: extractTemplateText(message.templateMessage) || "[modelo]" } };
+    case "groupInviteMessage":
+      return {
+        contentType: "text",
+        content: { type: "text", text: `Convite para o grupo ${message.groupInviteMessage?.groupName ?? ""}`.trim() },
+      };
     case "locationMessage": {
       const loc = message.locationMessage as Record<string, unknown>;
       return {
@@ -513,7 +615,7 @@ Deno.serve(async (req) => {
       channel_id: channelId,
       event_type: determineEventType(eventNorm),
       external_event_id: externalEventId,
-      payload: payload as unknown as Record<string, unknown>,
+      payload: slimForLog(payload) as Record<string, unknown>,
       processed: false,
     });
 
@@ -535,6 +637,8 @@ Deno.serve(async (req) => {
       await handleMessagesUpdate(supabase, channel, payload as EvolutionUpdatePayload);
     } else if (eventNorm === "connection.update") {
       await handleConnectionUpdate(supabase, channel, payload as EvolutionConnectionUpdatePayload);
+    } else if (eventNorm === "messages.edited") {
+      await handleMessagesEdited(supabase, payload as unknown as { data?: unknown });
     } else {
       console.log(`[Evolution] Unhandled event: ${payload.event} instance: ${instanceName.slice(0, 64)}`);
     }
@@ -574,6 +678,66 @@ Deno.serve(async (req) => {
 // EVENT HANDLERS
 // =============================================================================
 
+/** Marca a mensagem-alvo como editada (e troca o texto, se o novo texto for conhecido). */
+async function markMessageEdited(
+  supabase: ReturnType<typeof createClient>,
+  targetExternalId: string | undefined,
+  newText?: string,
+) {
+  if (!targetExternalId) return;
+  const { data: target } = await supabase
+    .from("messaging_messages")
+    .select("id, content, metadata, content_type")
+    .eq("external_id", targetExternalId)
+    .maybeSingle();
+  if (!target) return;
+
+  const metadata = { ...((target.metadata as Record<string, unknown>) ?? {}) };
+  const content = { ...((target.content as Record<string, unknown>) ?? {}) };
+  metadata.edited = true;
+  metadata.edited_at = new Date().toISOString();
+  if (newText && target.content_type === "text" && content.text !== newText) {
+    if (metadata.original_text === undefined) metadata.original_text = content.text ?? null;
+    content.text = newText;
+  }
+  const { error } = await supabase
+    .from("messaging_messages")
+    .update({ content, metadata })
+    .eq("id", target.id);
+  if (error) console.warn("[Evolution] Falha ao marcar mensagem editada:", error.message);
+}
+
+/** Procura o texto novo em qualquer formato que a Evolution use para edicao. */
+function findEditedText(node: unknown, depth = 0): string | undefined {
+  if (!node || typeof node !== "object" || depth > 6) return undefined;
+  const o = node as Record<string, unknown>;
+  if (typeof o.conversation === "string" && o.conversation) return o.conversation;
+  const ext = o.extendedTextMessage as { text?: unknown } | undefined;
+  if (ext && typeof ext.text === "string" && ext.text) return ext.text;
+  for (const k of ["editedMessage", "message", "protocolMessage", "data"]) {
+    const found = findEditedText(o[k], depth + 1);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+async function handleMessagesEdited(
+  supabase: ReturnType<typeof createClient>,
+  payload: { data?: unknown },
+) {
+  const items = Array.isArray(payload.data) ? payload.data : [payload.data];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const key = (o.key ?? (o.message as Record<string, unknown> | undefined)?.key) as { id?: string } | undefined;
+    const protoKey = ((o.message as Record<string, unknown> | undefined)?.protocolMessage as
+      | { key?: { id?: string } }
+      | undefined)?.key;
+    const targetId = protoKey?.id ?? key?.id ?? (typeof o.keyId === "string" ? o.keyId : undefined);
+    await markMessageEdited(supabase, targetId, findEditedText(o));
+  }
+}
+
 async function handleMessagesUpsert(
   supabase: ReturnType<typeof createClient>,
   channel: {
@@ -592,6 +756,17 @@ async function handleMessagesUpsert(
   // Skip groups and broadcast — not supported for now
   if (remoteJid.includes("@g.us")) return;
   if (remoteJid === "status@broadcast") return;
+
+  // ARK: pacotes que nao sao mensagem visivel
+  const messageType = data.messageType ?? "";
+  if (SILENT_MESSAGE_TYPES.has(messageType)) return;
+  if (messageType === "secretEncryptedMessage") {
+    // Edicao de mensagem: o texto novo vem criptografado neste pacote. Marcamos a original
+    // como editada; o texto chega (quando chega) pelo evento messages.edited.
+    await markMessageEdited(supabase, data.message?.secretEncryptedMessage?.targetMessageKey?.id);
+    return;
+  }
+  if (messageType === "reactionMessage" && !data.message?.reactionMessage?.text) return; // reacao removida
 
   const isFromMe = data.key.fromMe === true;
   const direction = isFromMe ? "outbound" : "inbound";
@@ -761,6 +936,9 @@ async function handleMessagesUpsert(
       console.warn("[Evolution] Erro ao baixar midia:", e instanceof Error ? e.message : e);
     }
   }
+
+  // Reacao nao e mensagem: nao mexe em previa, horario nem status da conversa
+  if (contentType === "reaction") return;
 
   // Update conversation — only reopen (status: open) for inbound messages
   const { error: convUpdateErr } = await supabase
