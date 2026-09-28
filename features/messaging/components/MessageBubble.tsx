@@ -2,7 +2,9 @@
 
 import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Clock, AlertCircle, FileText, MapPin, Play, Pause, Image, Reply, Video } from 'lucide-react';
+import { Check, CheckCheck, Clock, AlertCircle, FileText, MapPin, Play, Pause, Image, Reply, Video, Trash2, Ban } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import { sanitizeUrl } from '@/lib/utils/sanitize';
 import { useSendMessage } from '@/lib/query/hooks/useMessagingMessagesQuery';
@@ -465,7 +467,27 @@ export const MessageBubble = memo(function MessageBubble({
   const { mutate: sendMessage } = useSendMessage();
 
   const reactions = (message.metadata?.reactions as Record<string, number> | undefined) ?? {};
-  const canReact = !isOutbound && !!message.externalId;
+  const isDeleted = Boolean(message.metadata?.deleted);
+  const canReact = !isOutbound && !!message.externalId && !isDeleted;
+
+  // ARK: apagar para todos (so mensagens nossas)
+  const queryClient = useQueryClient();
+  const [isDeleting, setIsDeleting] = useState(false);
+  const handleDelete = useCallback(async () => {
+    if (isDeleting) return;
+    if (!window.confirm('Apagar esta mensagem para todos no WhatsApp?')) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/messaging/messages/${message.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.message || `Falha ao apagar (HTTP ${res.status})`);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messagingMessages.all });
+    } catch (err) {
+      window.alert((err as Error).message);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [isDeleting, message.id, queryClient]);
 
   // Find the message being replied to
   const repliedToMessage = message.replyToMessageId
@@ -532,7 +554,13 @@ export const MessageBubble = memo(function MessageBubble({
 
           {/* Content */}
           <div className="text-sm">
-            <MessageContent message={message} />
+            {isDeleted ? (
+              <p className="italic opacity-70 flex items-center gap-1.5">
+                <Ban className="w-3.5 h-3.5" /> Mensagem apagada
+              </p>
+            ) : (
+              <MessageContent message={message} />
+            )}
           </div>
 
           {/* Timestamp + delivery status */}
@@ -575,7 +603,20 @@ export const MessageBubble = memo(function MessageBubble({
         )}
       >
         {/* Reply button */}
-        {onReply && (
+        {isOutbound && !isDeleted && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={isDeleting}
+            aria-label="Apagar para todos"
+            title="Apagar para todos"
+            className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+
+        {onReply && !isDeleted && (
           <button
             type="button"
             onClick={() => onReply(message)}
