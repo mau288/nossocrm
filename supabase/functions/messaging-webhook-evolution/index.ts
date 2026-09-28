@@ -445,7 +445,9 @@ function generateStableEventId(
   channelId: string,
   eventNorm: string
 ): string {
-  if (eventNorm === "messages.upsert") {
+  // send.message = mensagem que saiu pela API da Evolution (agente do n8n, agendada, o proprio CRM).
+  // Mesmo id de evento do upsert: se a Evolution mandar os dois, o segundo e descartado.
+  if (eventNorm === "messages.upsert" || eventNorm === "send.message") {
     const data = (payload as EvolutionUpsertPayload).data;
     return `evo_msg_${data.key.id}`;
   }
@@ -631,7 +633,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    if (eventNorm === "messages.upsert") {
+    if (eventNorm === "messages.upsert" || eventNorm === "send.message") {
+      // ARK: sem o send.message, tudo que saia por API (respostas do agente de IA, mensagens
+      // agendadas) ficava invisivel no CRM — a Evolution so manda upsert para o que sai do aparelho.
       await handleMessagesUpsert(supabase, channel, payload as EvolutionUpsertPayload);
     } else if (eventNorm === "messages.update") {
       await handleMessagesUpdate(supabase, channel, payload as EvolutionUpdatePayload);
@@ -888,6 +892,38 @@ async function handleMessagesUpsert(
     }
   }
 
+  // ARK: mensagem enviada PELO CRM tambem gera send.message. A linha dela ja existe (o CRM grava
+  // antes de enviar) e pode ainda estar sem external_id: nesse caso adotamos a linha em vez de
+  // criar uma segunda bolha.
+  if (isFromMe) {
+    const since = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const { data: pending } = await supabase
+      .from("messaging_messages")
+      .select("id, content, content_type")
+      .eq("conversation_id", conversationId)
+      .eq("direction", "outbound")
+      .is("external_id", null)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    const sameText = (c: unknown) => ((c as { text?: string } | null)?.text ?? "") === ((content.text as string | undefined) ?? "");
+    const match = (pending ?? []).find((p) =>
+      contentType === "text" ? p.content_type === "text" && sameText(p.content) : p.content_type === contentType
+    );
+    if (match) {
+      await supabase
+        .from("messaging_messages")
+        .update({ external_id: externalMessageId })
+        .eq("id", match.id)
+        .is("external_id", null);
+      return;
+    }
+  }
+
+  // Mensagem que chega atrasada (reposicao, reenvio da Evolution) entra na posicao real do fio,
+  // nao no fim: a tela ordena por created_at.
+  const isLate = Date.now() - timestamp.getTime() > 2 * 60 * 1000;
+
   // Insert message (inbound or outbound from WhatsApp app)
   // Preserve real content type instead of always saving as 'text'
   const { data: insertedMsg, error: msgErr } = await supabase
@@ -903,6 +939,7 @@ async function handleMessagesUpsert(
         ? { sent_at: timestamp.toISOString() }
         : { delivered_at: timestamp.toISOString() }),
       sender_name: isFromMe ? null : pushName,
+      ...(isLate ? { created_at: timestamp.toISOString() } : {}),
       metadata: {
         evolution_message_id: externalMessageId,
         message_type: data.messageType,
@@ -939,6 +976,30 @@ async function handleMessagesUpsert(
 
   // Reacao nao e mensagem: nao mexe em previa, horario nem status da conversa
   if (contentType === "reaction") return;
+
+  // Mensagem atrasada nao pode virar a "ultima mensagem" da conversa: recalcula pela mais nova
+  if (isLate) {
+    const { data: newest } = await supabase
+      .from("messaging_messages")
+      .select("created_at, direction, content, content_type")
+      .eq("conversation_id", conversationId)
+      .neq("content_type", "reaction")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (newest) {
+      const text = (newest.content as { text?: string } | null)?.text;
+      await supabase
+        .from("messaging_conversations")
+        .update({
+          last_message_at: newest.created_at,
+          last_message_direction: newest.direction,
+          last_message_preview: (text ?? `[${newest.content_type}]`).slice(0, 100),
+        })
+        .eq("id", conversationId);
+    }
+    return;
+  }
 
   // Update conversation — only reopen (status: open) for inbound messages
   const { error: convUpdateErr } = await supabase
