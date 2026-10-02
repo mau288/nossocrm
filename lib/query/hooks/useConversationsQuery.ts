@@ -73,6 +73,11 @@ export function useConversations(filters?: ConversationFilters) {
   return useQuery({
     queryKey: queryKeys.messagingConversations.filtered(filters),
     queryFn: async (): Promise<ConversationView[]> => {
+      // ARK: filtro por tag do contato. Com tag, o join vira !inner (so conversas com contato
+      // vinculado) e filtramos no contato embutido — "qualquer uma das tags" (overlaps).
+      const tagFilter = (filters?.tags ?? []).filter(Boolean);
+      const contactJoin = tagFilter.length ? 'contacts!contact_id!inner' : 'contacts!contact_id';
+
       // Build query with joins for denormalized data
       let query = supabase
         .from('messaging_conversations')
@@ -84,12 +89,13 @@ export function useConversations(filters?: ConversationFilters) {
             channel_type,
             provider
           ),
-          contact:contacts!contact_id (
+          contact:${contactJoin} (
             id,
             name,
             email,
             phone,
-            ai_paused
+            ai_paused,
+            tags
           ),
           assigned_user:profiles!assigned_user_id (
             id,
@@ -118,6 +124,9 @@ export function useConversations(filters?: ConversationFilters) {
         query = query.is('assigned_user_id', null);
       } else if (filters?.assignedUserId) {
         query = query.eq('assigned_user_id', filters.assignedUserId);
+      }
+      if (tagFilter.length) {
+        query = query.overlaps('contact.tags', tagFilter);
       }
       if (filters?.hasUnread) {
         query = query.gt('unread_count', 0);

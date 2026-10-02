@@ -8,6 +8,7 @@ import { queryKeys } from '@/lib/query';
 import { ConversationItem } from './ConversationItem';
 import { ChannelIndicator } from './ChannelIndicator';
 import { useConversations } from '@/lib/query/hooks/useConversationsQuery';
+import { useContactTagsQuery } from '@/lib/query/hooks/useContactTagsQuery';
 import type { ConversationFilters, ConversationStatus, ChannelType, ConversationView } from '@/lib/messaging/types';
 import type { PresenceStatus } from '@/lib/messaging/hooks/useContactPresence';
 
@@ -63,6 +64,12 @@ export const ConversationList = memo(function ConversationList({
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState<ChannelType | 'all'>('all');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  // ARK: filtro por tag do contato (qualquer uma das marcadas)
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const { data: availableTags = [] } = useContactTagsQuery();
+  const toggleTag = useCallback((tag: string) => {
+    setTagFilter((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  }, []);
   const [showFilters, setShowFilters] = useState(false);
 
   // Botao "Atualizar": recarrega lista, thread aberta e contador da barra lateral.
@@ -82,7 +89,8 @@ export const ConversationList = memo(function ConversationList({
     search: searchQuery || undefined,
     channelType: channelFilter !== 'all' ? channelFilter : undefined,
     hasUnread: showUnreadOnly || undefined,
-  }), [statusFilter, businessUnitId, searchQuery, channelFilter, showUnreadOnly]);
+    tags: tagFilter.length ? tagFilter : undefined,
+  }), [statusFilter, businessUnitId, searchQuery, channelFilter, showUnreadOnly, tagFilter]);
 
   const { data: conversations, isLoading, error } = useConversations(filters);
 
@@ -90,12 +98,14 @@ export const ConversationList = memo(function ConversationList({
     let count = 0;
     if (channelFilter !== 'all') count++;
     if (showUnreadOnly) count++;
+    if (tagFilter.length) count++;
     return count;
-  }, [channelFilter, showUnreadOnly]);
+  }, [channelFilter, showUnreadOnly, tagFilter]);
 
   const clearFilters = () => {
     setChannelFilter('all');
     setShowUnreadOnly(false);
+    setTagFilter([]);
   };
 
   const statusTabs = [
@@ -217,6 +227,40 @@ export const ConversationList = memo(function ConversationList({
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* ARK: Tag Filter */}
+            <div>
+              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
+                Tags do contato{tagFilter.length > 1 ? ' (qualquer uma)' : ''}
+              </label>
+              {availableTags.length === 0 ? (
+                <p className="text-xs text-slate-400">Nenhuma tag em uso ainda.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                  {availableTags.map(({ tag, count }) => {
+                    const active = tagFilter.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleTag(tag)}
+                        aria-pressed={active}
+                        title={`${count} contato${count === 1 ? '' : 's'}`}
+                        className={cn(
+                          'flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full transition-colors',
+                          active
+                            ? 'bg-primary-500 text-white'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 hover:border-primary-300'
+                        )}
+                      >
+                        {tag}
+                        <span className={cn('text-[10px]', active ? 'text-white/80' : 'text-slate-400')}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Unread Filter */}
