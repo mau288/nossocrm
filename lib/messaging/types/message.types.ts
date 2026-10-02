@@ -442,6 +442,8 @@ export interface ConversationFilters {
   assignedUserId?: string | 'unassigned';
   hasUnread?: boolean;
   search?: string;
+  /** ARK: tags do CONTATO (qualquer uma delas) */
+  tags?: string[];
   sortBy?: 'lastMessageAt' | 'createdAt' | 'unreadCount';
   sortOrder?: 'asc' | 'desc';
 }

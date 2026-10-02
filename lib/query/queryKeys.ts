@@ -87,6 +87,7 @@ export const queryKeys = {
             filters?.assignedUserId ?? null,
             filters?.hasUnread ?? null,
             filters?.search ?? null,
+            filters?.tags?.length ? [...filters.tags].sort().join(',') : null,
             filters?.sortBy ?? null,
             filters?.sortOrder ?? null,
           ] as const,
