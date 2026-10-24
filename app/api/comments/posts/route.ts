@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   const apiKey = typeof credentials?.apiKey === 'string' ? credentials.apiKey : null;
   if (!apiKey) return NextResponse.json({ message: 'Canal Zernio não conectado.' }, { status: 403 });
   const platform = request.nextUrl.searchParams.get('platform');
-  if (platform && !['instagram', 'youtube'].includes(platform)) return NextResponse.json({ message: 'Plataforma inválida.' }, { status: 400 });
+  if (platform && !['instagram', 'youtube', 'tiktok'].includes(platform)) return NextResponse.json({ message: 'Plataforma inválida.' }, { status: 400 });
   // A caixa de Comentários nasce focada em interação. Posts sem comentário só
   // entram quando a UI pede explicitamente a visualização ampliada.
   const includeEmpty = request.nextUrl.searchParams.get('includeEmpty') === 'true';

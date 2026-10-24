@@ -3,12 +3,14 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ExternalLink, EyeOff, Instagram, MessageCircle, RefreshCw, Reply, Send, ThumbsUp, Trash2, Youtube } from 'lucide-react';
 
-type Platform = 'all' | 'instagram' | 'youtube';
-type Post = { id: string; platform: 'instagram' | 'youtube'; accountId: string; accountUsername?: string; content?: string; picture?: string; permalink?: string; commentCount?: number };
+type Platform = 'all' | 'instagram' | 'youtube' | 'tiktok';
+type Post = { id: string; platform: 'instagram' | 'youtube' | 'tiktok'; accountId: string; accountUsername?: string; content?: string; picture?: string; permalink?: string; commentCount?: number };
 type ThreadComment = { id: string; message?: string; createdTime?: string; likeCount?: number; from?: { name?: string; username?: string; picture?: string; isOwner?: boolean }; replies?: ThreadComment[] };
 type CommentAction = 'hide' | 'delete';
 
-const platformIcon = (platform: string) => platform === 'youtube' ? Youtube : Instagram;
+// O lucide não traz a marca do TikTok; o traço é o do Simple Icons (CC0), no mesmo contrato de className dos ícones do lucide.
+const Tiktok = ({ className }: { className?: string }) => <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z" /></svg>;
+const platformIcon = (platform: string) => platform === 'youtube' ? Youtube : platform === 'tiktok' ? Tiktok : Instagram;
 const preview = (content?: string) => content && content.length > 98 ? `${content.slice(0, 98)}…` : content || 'Post sem texto';
 const threadCount = (items: ThreadComment[]) => items.reduce((count, item) => count + 1 + threadCount(item.replies ?? []), 0);
 
@@ -115,7 +117,7 @@ export function CommentsWorkspaceV3() {
 
   return <div className="flex h-[calc(100vh-4rem)] min-h-[650px] overflow-hidden bg-[#111827] text-slate-100">
     <aside className="flex w-[38%] min-w-[350px] max-w-[560px] flex-col border-r border-slate-700 bg-[#111827]">
-      <div className="border-b border-slate-700 p-4"><h1 className="text-xl font-bold">Comentários</h1><div className="mt-3 flex items-center gap-2"><label className="relative"><select aria-label="Filtrar plataforma" value={platform} onChange={(event) => setPlatform(event.target.value as Platform)} className="appearance-none rounded-md border border-slate-600 bg-[#161d2b] py-2 pl-3 pr-8 text-sm text-slate-100"><option value="all">Todas as plataformas</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option></select><ChevronDown className="pointer-events-none absolute right-2 top-2.5 h-4 w-4" /></label><button onClick={() => void loadPosts()} className="rounded-md border border-slate-600 p-2 hover:bg-slate-800" title="Atualizar"><RefreshCw className={loadingPosts ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} /></button></div><label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-slate-400"><input type="checkbox" checked={includeEmpty} onChange={(event) => setIncludeEmpty(event.target.checked)} className="accent-orange-600" /> Incluir posts sem comentários</label></div>
+      <div className="border-b border-slate-700 p-4"><h1 className="text-xl font-bold">Comentários</h1><div className="mt-3 flex items-center gap-2"><label className="relative"><select aria-label="Filtrar plataforma" value={platform} onChange={(event) => setPlatform(event.target.value as Platform)} className="appearance-none rounded-md border border-slate-600 bg-[#161d2b] py-2 pl-3 pr-8 text-sm text-slate-100"><option value="all">Todas as plataformas</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option><option value="tiktok">TikTok</option></select><ChevronDown className="pointer-events-none absolute right-2 top-2.5 h-4 w-4" /></label><button onClick={() => void loadPosts()} className="rounded-md border border-slate-600 p-2 hover:bg-slate-800" title="Atualizar"><RefreshCw className={loadingPosts ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} /></button></div><label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-slate-400"><input type="checkbox" checked={includeEmpty} onChange={(event) => setIncludeEmpty(event.target.checked)} className="accent-orange-600" /> Incluir posts sem comentários</label></div>
       <div className="flex-1 overflow-y-auto">{posts.map((post) => { const Icon = platformIcon(post.platform); const active = selected?.id === post.id && selected?.accountId === post.accountId; return <button key={`${post.platform}-${post.accountId}-${post.id}`} onClick={() => setSelected(post)} className={`flex w-full gap-3 border-b border-slate-800 p-3 text-left transition ${active ? 'bg-slate-700/70' : 'hover:bg-slate-800/70'}`}><div className="h-14 w-14 shrink-0 overflow-hidden rounded bg-slate-700">{post.picture ? <img src={post.picture} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center"><Icon className="h-5 w-5" /></div>}</div><div className="min-w-0 flex-1"><p className="line-clamp-2 text-sm font-semibold leading-5">{preview(post.content)}</p><div className="mt-1 flex items-center gap-1 text-xs text-slate-400"><Icon className="h-3.5 w-3.5" /> @{post.accountUsername} <span className="ml-2 inline-flex items-center gap-1"><MessageCircle className="h-3.5 w-3.5" /> {post.commentCount ?? 0}</span></div></div></button>; })}{!loadingPosts && posts.length === 0 && <p className="p-6 text-center text-sm text-slate-400">Nenhum post encontrado para este filtro.</p>}</div>
     </aside>
     <main className="flex min-w-0 flex-1 flex-col bg-[#171717]">{selected ? <>
@@ -131,7 +133,8 @@ function ThreadCard({ comment, platform, depth, actingOn, onReply, onAction }: {
   const Icon = platformIcon(platform);
   const isOwner = Boolean(comment.from?.isOwner);
   const author = comment.from?.name ?? comment.from?.username ?? 'Usuário';
-  const canHide = platform === 'instagram' && !isOwner;
+  // YouTube não oculta por API; Instagram e TikTok devolvem canHide=true na Zernio.
+  const canHide = (platform === 'instagram' || platform === 'tiktok') && !isOwner;
   const likeLabel = comment.likeCount === 1 ? '1 curtida' : `${comment.likeCount ?? 0} curtidas`;
   return <div className={depth > 0 ? 'ml-6 border-l border-slate-600 pl-3' : ''}>
     <article className={`rounded-md border p-4 ${isOwner ? 'border-stone-300 bg-stone-100 text-stone-900' : 'border-slate-700 bg-[#252525]'}`}>
