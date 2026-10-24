@@ -26,6 +26,9 @@ export type { MetaInstagramCredentials } from './instagram';
 export { ZernioInstagramProvider } from './instagram';
 export type { ZernioCredentials } from './instagram';
 
+// TikTok providers
+export { ZernioTiktokProvider } from './tiktok';
+
 // Email providers
 export { ResendEmailProvider } from './email';
 export type { ResendCredentials, ResendWebhookPayload } from './email';
@@ -37,6 +40,7 @@ export type { ResendCredentials, ResendWebhookPayload } from './email';
 import { registerProvider } from '../channel-factory';
 import { ZApiWhatsAppProvider, MetaCloudWhatsAppProvider, EvolutionWhatsAppProvider } from './whatsapp';
 import { MetaInstagramProvider, ZernioInstagramProvider } from './instagram';
+import { ZernioTiktokProvider } from './tiktok';
 import { ResendEmailProvider } from './email';
 
 // Register Z-API provider
@@ -215,6 +219,42 @@ registerProvider({
       required: false,
       placeholder: 'Segredo devolvido ao registrar o webhook',
       helpText: 'Usado para validar a assinatura HMAC dos eventos da Zernio',
+    },
+  ],
+  features: [],
+});
+
+// Register Zernio TikTok provider (ARK #52) — mesma API da Zernio, outro tipo de canal
+registerProvider({
+  channelType: 'tiktok',
+  providerName: 'zernio',
+  constructor: ZernioTiktokProvider,
+  displayName: 'TikTok (Zernio)',
+  description: 'DMs do TikTok via Zernio — conecte a conta na Zernio e cole a chave da API',
+  configFields: [
+    {
+      key: 'apiKey',
+      label: 'Zernio API Key',
+      type: 'password',
+      required: true,
+      placeholder: 'Chave da API da Zernio',
+      helpText: 'Encontre em zernio.com > Configurações > API',
+    },
+    {
+      key: 'accountId',
+      label: 'Account ID (conta TikTok na Zernio)',
+      type: 'text',
+      required: true,
+      placeholder: 'ID da conta conectada na Zernio',
+      helpText: 'Liste as contas em GET /accounts da Zernio ou copie do painel',
+    },
+    {
+      key: 'username',
+      label: '@usuário (opcional)',
+      type: 'text',
+      required: false,
+      placeholder: '@perfil',
+      helpText: 'Apenas informativo, aparece no card do canal',
     },
   ],
   features: [],

@@ -10,6 +10,7 @@ import {
   Mic,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TiktokIcon } from '@/components/icons/TiktokIcon';
 import type { ChannelType } from '@/lib/messaging/types';
 
 interface ChannelIndicatorProps {
@@ -36,6 +37,11 @@ export const CHANNEL_CONFIG: Record<
     icon: Instagram,
     color: 'bg-gradient-to-br from-purple-500 to-pink-500',
     label: 'Instagram',
+  },
+  tiktok: {
+    icon: TiktokIcon,
+    color: 'bg-black',
+    label: 'TikTok',
   },
   email: {
     icon: Mail,

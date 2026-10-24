@@ -36,8 +36,10 @@ interface PullToWhatsAppModalProps {
   onDone?: (conversationId: string) => void;
 }
 
-const DEFAULT_TEMPLATE =
-  'Oi {nome}, aqui é da Ark Academy 👋 vim do seu Direct no Instagram, vou te ajudar por aqui!';
+const ORIGIN_LABEL: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok' };
+/** O texto inicial segue a origem (origem:tiktok → "Direct no TikTok"); o que o usuário já salvou vence. */
+const defaultTemplate = (originTag: string) =>
+  `Oi {nome}, aqui é da Ark Academy 👋 vim do seu Direct no ${ORIGIN_LABEL[originTag.split(':')[1] ?? ''] ?? 'Instagram'}, vou te ajudar por aqui!`;
 
 /** Normaliza para +55DDDNNNNNNNN (formato que o espelho grava). */
 function normalizePhone(raw: string): string | null {
@@ -66,7 +68,7 @@ export const PullToWhatsAppModal: React.FC<PullToWhatsAppModalProps> = ({
 
   const [phone, setPhone] = useState('');
   const [channelId, setChannelId] = usePersistedState<string>('crm_handoff_channel', '');
-  const [template, setTemplate] = usePersistedState<string>('crm_handoff_template', DEFAULT_TEMPLATE);
+  const [template, setTemplate] = usePersistedState<string>('crm_handoff_template', defaultTemplate(originTag));
   const [busy, setBusy] = useState(false);
   const [match, setMatch] = useState<{ id: string; name: string } | null>(null);
 

@@ -54,7 +54,7 @@ export function registerMessagingTools(server: McpServer) {
       inputSchema: {
         name: z.string().min(1).describe('Friendly name for the channel'),
         channelType: z
-          .enum(['whatsapp', 'instagram', 'email', 'sms', 'telegram'])
+          .enum(['whatsapp', 'instagram', 'tiktok', 'email', 'sms', 'telegram'])
           .describe('Type of channel'),
         provider: z
           .string()

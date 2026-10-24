@@ -16,6 +16,7 @@ import {
   ExternalLink,
   Copy,
 } from 'lucide-react';
+import { TiktokIcon } from '@/components/icons/TiktokIcon';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/context/ToastContext';
 import { cn } from '@/lib/utils/cn';
@@ -304,6 +305,7 @@ const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
 const CHANNEL_ICONS: Record<ChannelType, React.FC<{ className?: string }>> = {
   whatsapp: MessageCircle,
   instagram: Instagram,
+  tiktok: TiktokIcon,
   email: Mail,
   sms: () => null,
   telegram: () => null,
