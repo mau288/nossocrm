@@ -57,6 +57,7 @@ import {
   useDeleteLeadRoutingRule,
 } from '@/lib/query/hooks/useLeadRoutingRulesQuery';
 import type { LeadRoutingRuleView } from '@/lib/messaging/types';
+import { TiktokIcon } from '@/components/icons/TiktokIcon';
 
 // =============================================================================
 // CONSTANTS
@@ -65,6 +66,7 @@ import type { LeadRoutingRuleView } from '@/lib/messaging/types';
 const CHANNEL_ICONS: Record<ChannelType, React.FC<{ className?: string }>> = {
   whatsapp: MessageCircle,
   instagram: Instagram,
+  tiktok: TiktokIcon,
   email: Mail,
   sms: Smartphone,
   telegram: Send,

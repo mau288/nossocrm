@@ -1,11 +1,13 @@
 // =============================================================================
-// Zernio (Instagram) Webhook — Edge Function
+// Zernio (Instagram + TikTok) Webhook — Edge Function
 // =============================================================================
 // Receives Zernio events (message.received / message.sent / conversation.started)
 // and persists them as CRM conversations + messages, mirroring the structure of
 // messaging-webhook-evolution.
 //
 // URL pattern (multi-tenant): /messaging-webhook-zernio/{channelId}
+//   A URL aponta para o canal do Instagram; eventos de outra conta da mesma
+//   chave (TikTok) são roteados para o canal com aquele accountId (ARK #52).
 //
 // Auth (default-deny):
 //   1. HMAC-SHA256 signature of the RAW body, hex lowercase, in the
@@ -155,6 +157,7 @@ async function autoCreateDeal(
     stageId?: string | null;
     conversationId: string;
     contactName: string;
+    channelLabel?: string;
   }
 ) {
   try {
@@ -183,7 +186,7 @@ async function autoCreateDeal(
         board_id: params.boardId,
         stage_id: stageId,
         contact_id: params.contactId,
-        title: `${params.contactName} - Instagram`,
+        title: `${params.contactName} - ${params.channelLabel ?? "Instagram"}`,
         value: 0,
       })
       .select("id")
@@ -248,9 +251,6 @@ type NormalizedMessage = {
 function normalizeMessageEvent(root: Obj): NormalizedMessage | null {
   const message = asObj(root["message"]);
   if (!message) return null;
-
-  const platform = (readText(message, ["platform"]) ?? "instagram").toLowerCase();
-  if (platform !== "instagram") return null;
 
   const conversation = asObj(root["conversation"]);
   const conversationExternalId =
@@ -433,9 +433,9 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceKey);
 
   // Fetch channel by ID (not by account — avoids attacker-controlled lookup)
-  const { data: channel, error: channelErr } = await supabase
+  const { data: urlChannel, error: channelErr } = await supabase
     .from("messaging_channels")
-    .select("id, organization_id, business_unit_id, external_identifier, status, credentials")
+    .select("id, organization_id, business_unit_id, channel_type, external_identifier, status, credentials")
     .eq("id", channelId)
     .eq("provider", "zernio")
     .in("status", ["connected", "active"])
@@ -446,14 +446,14 @@ Deno.serve(async (req) => {
     return json(200, { ok: false, error: "Erro ao buscar canal" });
   }
 
-  if (!channel) {
+  if (!urlChannel) {
     return json(200, { ok: false, error: "Canal não encontrado" });
   }
 
   // ---------------------------------------------------------------------------
   // AUTH — default deny.
   // ---------------------------------------------------------------------------
-  const credentials = (channel.credentials as Record<string, string>) ?? {};
+  const credentials = (urlChannel.credentials as Record<string, string>) ?? {};
   const signatureSecret = Deno.env.get("ZERNIO_WEBHOOK_SECRET") ?? credentials.webhookSecret;
   const signatureHeader =
     req.headers.get("x-zernio-signature") ?? req.headers.get("x-late-signature");
@@ -482,6 +482,30 @@ Deno.serve(async (req) => {
   const event = (readText(payload, ["event"]) ?? "unknown").toLowerCase();
 
   // ---------------------------------------------------------------------------
+  // ROTEAMENTO POR CONTA (ARK #52)
+  // A Zernio manda TODAS as contas (Instagram, TikTok, YouTube) para o mesmo
+  // webhook, cuja URL aponta para o canal do Instagram. Quando o evento é de
+  // outra conta, trocamos para o canal que tem aquele accountId (mesma
+  // organização, mesma chave). Conta sem canal no CRM → só auditoria.
+  // ---------------------------------------------------------------------------
+  const eventAccountId = readText(asObj(payload["account"]), ["id", "accountId"]);
+  let channel = urlChannel;
+  if (eventAccountId && eventAccountId !== credentials.accountId) {
+    const { data: sibling } = await supabase
+      .from("messaging_channels")
+      .select("id, organization_id, business_unit_id, channel_type, external_identifier, status, credentials")
+      .eq("organization_id", urlChannel.organization_id)
+      .eq("provider", "zernio")
+      .in("status", ["connected", "active"])
+      .eq("credentials->>accountId", eventAccountId)
+      .maybeSingle();
+    if (sibling) channel = sibling;
+  }
+  const accountRouted =
+    !eventAccountId ||
+    readText((channel.credentials as Obj | null) ?? null, ["accountId"]) === eventAccountId;
+
+  // ---------------------------------------------------------------------------
   // AUDIT LOGGING & DEDUPLICATION
   // ---------------------------------------------------------------------------
   const message = asObj(payload["message"]);
@@ -494,6 +518,16 @@ Deno.serve(async (req) => {
     const offset = Number(readText(payload, ["offset"]) ?? 0) || 0;
     const limit = Math.min(Number(readText(payload, ["limit"]) ?? 40) || 40, 60);
     const result = await backfillChannel(supabase, channel as unknown as ChannelRow, offset, limit);
+    return json(200, { ok: true, event, ...result });
+  }
+
+  // Carga inicial de uma conta (ARK #52): lista as conversas da conta na
+  // Zernio e cria no CRM as que ainda não existem, com histórico. Usado ao
+  // ligar um canal novo cujas DMs chegaram antes de o CRM escutá-las.
+  if (event === "crm.import_conversations") {
+    if (!accountRouted) return json(400, { ok: false, error: "Conta sem canal no CRM" });
+    const limit = Math.min(Number(readText(payload, ["limit"]) ?? 50) || 50, 100);
+    const result = await importAccountConversations(supabase, channel as unknown as ChannelRow, limit);
     return json(200, { ok: true, event, ...result });
   }
 
@@ -528,7 +562,7 @@ Deno.serve(async (req) => {
   const { error: eventInsertErr } = await supabase
     .from("messaging_webhook_events")
     .insert({
-      channel_id: channelId,
+      channel_id: channel.id,
       event_type: event,
       external_event_id: externalEventId,
       payload: payload as unknown as Record<string, unknown>,
@@ -545,7 +579,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    if (event === "message.received" || event === "message.sent") {
+    if (!accountRouted) {
+      console.log(`[Zernio] evento de conta sem canal no CRM (${eventAccountId}) — só auditoria`);
+    } else if (event === "message.received" || event === "message.sent") {
       await handleMessage(supabase, channel, payload);
     } else if (event === "conversation.started") {
       await handleConversationStarted(supabase, channel, payload);
@@ -557,7 +593,7 @@ Deno.serve(async (req) => {
     await supabase
       .from("messaging_webhook_events")
       .update({ processed: true, processed_at: new Date().toISOString() })
-      .eq("channel_id", channelId)
+      .eq("channel_id", channel.id)
       .eq("external_event_id", externalEventId);
 
     return json(200, { ok: true, event });
@@ -571,7 +607,7 @@ Deno.serve(async (req) => {
         processed_at: new Date().toISOString(),
         error: error instanceof Error ? error.message : "Unknown error",
       })
-      .eq("channel_id", channelId)
+      .eq("channel_id", channel.id)
       .eq("external_event_id", externalEventId);
 
     // Always return 200 to avoid retry storms
@@ -591,9 +627,15 @@ type ChannelRow = {
   id: string;
   organization_id: string;
   business_unit_id: string;
+  channel_type: string;
   external_identifier: string;
   credentials?: Record<string, unknown> | null;
 };
+
+const PLATFORM_LABEL: Record<string, string> = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" };
+function platformLabel(channel: ChannelRow): string {
+  return PLATFORM_LABEL[channel.channel_type] ?? channel.channel_type;
+}
 
 /**
  * Ensures contact + conversation exist for a Zernio conversation id and
@@ -612,11 +654,12 @@ async function ensureConversation(
     identityTrusted?: boolean;
   }
 ): Promise<{ conversationId: string; contactId: string | null; created: boolean }> {
+  const placeholder = `Contato do ${platformLabel(channel)}`;
   const trustedDisplayName = params.identityTrusted ? params.displayName : null;
   const trustedUsername = params.identityTrusted ? params.username : null;
   const contactName =
-    trustedDisplayName ?? (trustedUsername ? `@${trustedUsername.replace(/^@/, "")}` : null) ?? "Contato do Instagram";
-  const hasRealName = contactName !== "Contato do Instagram";
+    trustedDisplayName ?? (trustedUsername ? `@${trustedUsername.replace(/^@/, "")}` : null) ?? placeholder;
+  const hasRealName = contactName !== placeholder;
 
   const { data: existingConv, error: convFindErr } = await supabase
     .from("messaging_conversations")
@@ -647,7 +690,7 @@ async function ensureConversation(
             ...(params.avatar ? { avatar: params.avatar } : {}),
           })
           .eq("id", existingConv.contact_id)
-          .in("name", ["Contato do Instagram", existingConv.external_contact_name]);
+          .in("name", [placeholder, existingConv.external_contact_name]);
       }
     }
     return { conversationId: existingConv.id, contactId: existingConv.contact_id, created: false };
@@ -661,7 +704,7 @@ async function ensureConversation(
     .insert({
       organization_id: channel.organization_id,
       name: contactName,
-      source: "instagram",
+      source: channel.channel_type,
       ...(params.avatar ? { avatar: params.avatar } : {}),
     })
     .select("id")
@@ -687,7 +730,7 @@ async function ensureConversation(
       priority: "normal",
       metadata: {
         zernio_conversation_id: params.conversationExternalId,
-        ...(params.username ? { instagram_username: params.username } : {}),
+        ...(params.username ? { [`${channel.channel_type}_username`]: params.username } : {}),
       },
     })
     .select("id")
@@ -706,6 +749,7 @@ async function ensureConversation(
         stageId: routingRule.stageId,
         conversationId: newConv.id,
         contactName,
+        channelLabel: platformLabel(channel),
       });
     }
   }
@@ -735,7 +779,7 @@ async function handleMessage(
     identityTrusted: norm.direction === "inbound",
   });
 
-  const inserted = await storeMessage(supabase, conversationId, norm);
+  const inserted = await storeMessage(supabase, conversationId, norm, channel.channel_type);
   if (!inserted) return;
   const { contentType, content } = contentFor(norm);
   const isOutbound = norm.direction === "outbound";
@@ -773,7 +817,8 @@ async function handleMessage(
 async function storeMessage(
   supabase: ReturnType<typeof createClient>,
   conversationId: string,
-  norm: NormalizedMessage
+  norm: NormalizedMessage,
+  platform = "instagram"
 ): Promise<string | null> {
   const { contentType, content } = contentFor(norm);
   const isOutbound = norm.direction === "outbound";
@@ -815,7 +860,7 @@ async function storeMessage(
       sender_name: isOutbound ? null : norm.senderName ?? norm.senderUsername,
       metadata: {
         zernio_conversation_id: norm.conversationExternalId,
-        ...(norm.senderUsername ? { instagram_username: norm.senderUsername } : {}),
+        ...(norm.senderUsername ? { [`${platform}_username`]: norm.senderUsername } : {}),
       },
     })
     .select("id")
@@ -918,7 +963,7 @@ async function syncConversationHistory(
       if (!m) continue;
       const norm = normalizeApiMessage(conversationExternalId, m);
       if (!norm) continue;
-      if (await storeMessage(supabase, conversationId, norm)) added++;
+      if (await storeMessage(supabase, conversationId, norm, channel.channel_type)) added++;
     }
 
     const pagination = asObj(body["pagination"]);
@@ -969,6 +1014,75 @@ async function backfillChannel(
   return { processed: convs?.length ?? 0, added, nextOffset: offset + (convs?.length ?? 0), details };
 }
 
+/**
+ * Carga inicial de uma conta (ARK #52): percorre as conversas da conta na
+ * Zernio, garante contato + conversa no CRM e puxa o fio inteiro de cada uma.
+ * Quando a lista vem sem nome do participante, promove o nome pelo remetente
+ * da primeira mensagem recebida.
+ */
+async function importAccountConversations(
+  supabase: ReturnType<typeof createClient>,
+  channel: ChannelRow,
+  limit: number
+) {
+  const creds = (channel.credentials ?? {}) as Record<string, string>;
+  if (!creds.apiKey || !creds.accountId) return { processed: 0, created: 0, added: 0, details: [] };
+
+  const res = await fetch(
+    `${ZERNIO_API}/inbox/conversations?accountId=${encodeURIComponent(creds.accountId)}&limit=${limit}`,
+    { headers: { Authorization: `Bearer ${creds.apiKey}` } }
+  );
+  if (!res.ok) throw new Error(`Zernio conversations HTTP ${res.status}`);
+  const body = (await res.json()) as Obj;
+  const list = Array.isArray(body["data"]) ? (body["data"] as unknown[]) : [];
+
+  let created = 0;
+  let added = 0;
+  const details: { id: string; name: string | null; created: boolean; added: number }[] = [];
+  for (const raw of list) {
+    const c = asObj(raw);
+    const externalId = readText(c, ["id"]);
+    if (!c || !externalId) continue;
+    const displayName = readText(c, ["participantName"]);
+    const username = readText(c, ["participantUsername"]);
+    const ensured = await ensureConversation(supabase, channel, {
+      conversationExternalId: externalId,
+      displayName,
+      username,
+      avatar: readText(c, ["participantPicture", "participantAvatar"]),
+      identityTrusted: true,
+    });
+    if (ensured.created) created++;
+    const n = await syncConversationHistory(supabase, channel, externalId, ensured.conversationId, "full");
+    added += n;
+
+    if (!displayName && !username) {
+      const { data: firstIn } = await supabase
+        .from("messaging_messages")
+        .select("sender_name")
+        .eq("conversation_id", ensured.conversationId)
+        .eq("direction", "inbound")
+        .not("sender_name", "is", null)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (firstIn?.sender_name) {
+        await ensureConversation(supabase, channel, {
+          conversationExternalId: externalId,
+          displayName: firstIn.sender_name as string,
+          username: null,
+          avatar: null,
+          identityTrusted: true,
+        });
+      }
+    }
+    details.push({ id: externalId, name: displayName ?? username, created: ensured.created, added: n });
+    // limite da Zernio: 60 req/min
+    await new Promise((r) => setTimeout(r, 1100));
+  }
+  return { processed: list.length, created, added, details };
+}
+
 async function handleConversationStarted(
   supabase: ReturnType<typeof createClient>,
   channel: ChannelRow,
@@ -976,9 +1090,6 @@ async function handleConversationStarted(
 ) {
   const conversation = asObj(payload["conversation"]);
   if (!conversation) return;
-
-  const platform = (readText(conversation, ["platform"]) ?? "instagram").toLowerCase();
-  if (platform !== "instagram") return;
 
   const conversationExternalId = readText(conversation, ["id"]);
   if (!conversationExternalId) return;

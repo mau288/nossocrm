@@ -18,6 +18,7 @@
 export type ChannelType =
   | 'whatsapp'
   | 'instagram'
+  | 'tiktok'
   | 'email'
   | 'sms'
   | 'telegram'
@@ -30,6 +31,7 @@ export type ChannelType =
 export const CHANNEL_PROVIDERS: Record<ChannelType, string[]> = {
   whatsapp: ['z-api', 'evolution', 'meta-cloud'],
   instagram: ['meta'],
+  tiktok: ['zernio'],
   email: ['smtp', 'resend'],
   sms: ['twilio', 'vonage'],
   telegram: ['telegram-bot'],
@@ -81,6 +83,7 @@ export const CHANNEL_TYPE_INFO: Record<ChannelType, {
 }> = {
   whatsapp: { label: 'WhatsApp', icon: 'MessageCircle', color: 'bg-green-500' },
   instagram: { label: 'Instagram', icon: 'Instagram', color: 'bg-pink-500' },
+  tiktok: { label: 'TikTok', icon: 'Music2', color: 'bg-black' },
   email: { label: 'Email', icon: 'Mail', color: 'bg-blue-500' },
   sms: { label: 'SMS', icon: 'Smartphone', color: 'bg-purple-500' },
   telegram: { label: 'Telegram', icon: 'Send', color: 'bg-sky-500' },

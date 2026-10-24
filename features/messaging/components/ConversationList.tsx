@@ -50,6 +50,7 @@ const CHANNEL_OPTIONS: { id: ChannelType | 'all'; label: string }[] = [
   { id: 'all', label: 'Todos os canais' },
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'instagram', label: 'Instagram' },
+  { id: 'tiktok', label: 'TikTok' },
   { id: 'email', label: 'Email' },
   { id: 'sms', label: 'SMS' },
 ];
