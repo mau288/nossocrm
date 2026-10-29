@@ -228,6 +228,9 @@ export const queryKeys = {
      */
     gateways: createQueryKeys('gateways'),
 
+    /** ARK #53: historico de metas dos funis. */
+    boardGoalHistory: createQueryKeys('boardGoalHistory'),
+
     /**
      * Org-level + user settings query keys.
      */

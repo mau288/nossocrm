@@ -347,6 +347,27 @@ export interface BoardGoal {
   targetValue: string; // "20%"
   currentValue?: string; // "15%" (Progresso atual)
   type?: 'currency' | 'number' | 'percentage'; // Explicit type for calculation
+  /** ARK #53: janela da meta (YYYY-MM-DD). Só ganhos fechados dentro dela contam. */
+  startDate?: string;
+  endDate?: string;
+}
+
+// ARK #53: meta que já foi trocada, com o resultado final
+export interface BoardGoalHistoryEntry {
+  id: string;
+  boardId: string;
+  boardName: string;
+  kpi: string;
+  targetValue: string;
+  goalType?: BoardGoal['type'];
+  description?: string;
+  startDate?: string;
+  endDate?: string;
+  achievedValue: number;
+  achievedDisplay: string;
+  wonCount: number;
+  wonValue: number;
+  archivedAt: string;
 }
 
 // Persona do Agente (Quem opera o board)

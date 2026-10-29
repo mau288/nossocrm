@@ -248,6 +248,9 @@ export {
   useSetGatewayFee,
 } from './useGatewaysQuery';
 
+// ARK #53: historico de metas dos funis
+export { useBoardGoalHistory, useArchiveBoardGoal } from './useBoardGoalHistoryQuery';
+
 // Org Settings (user prefs + org AI config)
 export {
   useOrgSettings,

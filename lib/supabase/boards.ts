@@ -103,6 +103,9 @@ export interface DbBoard {
   goal_target_value: string | null;
   /** Tipo da meta (currency, percentage, count). */
   goal_type: string | null;
+  /** ARK #53: janela da meta. */
+  goal_start_date?: string | null;
+  goal_end_date?: string | null;
   /** Nome do agente de IA. */
   agent_name: string | null;
   /** Papel/função do agente. */
@@ -182,6 +185,8 @@ const transformBoard = (db: DbBoard, stages: DbBoardStage[]): Board => {
     kpi: db.goal_kpi || '',
     targetValue: db.goal_target_value || '',
     type: (db.goal_type as BoardGoal['type']) || undefined,
+    startDate: db.goal_start_date || undefined,
+    endDate: db.goal_end_date || undefined,
   } : undefined;
 
   const agentPersona: AgentPersona | undefined = db.agent_name ? {
@@ -259,6 +264,8 @@ const transformToDb = (board: Omit<Board, 'id' | 'createdAt'>, order?: number): 
     goal_kpi: board.goal?.kpi || null,
     goal_target_value: board.goal?.targetValue || null,
     goal_type: board.goal?.type || null,
+    goal_start_date: board.goal?.startDate || null,
+    goal_end_date: board.goal?.endDate || null,
     agent_name: board.agentPersona?.name || null,
     agent_role: board.agentPersona?.role || null,
     agent_behavior: board.agentPersona?.behavior || null,
@@ -572,6 +579,8 @@ export const boardsService = {
         dbUpdates.goal_kpi = updates.goal?.kpi || null;
         dbUpdates.goal_target_value = updates.goal?.targetValue || null;
         dbUpdates.goal_type = updates.goal?.type || null;
+        dbUpdates.goal_start_date = updates.goal?.startDate || null;
+        dbUpdates.goal_end_date = updates.goal?.endDate || null;
       }
 
       if (updates.agentPersona !== undefined) {

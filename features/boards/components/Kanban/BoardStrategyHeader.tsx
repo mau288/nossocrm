@@ -9,14 +9,14 @@ import {
   X,
   ChevronRight,
   MessageSquare,
+  History,
 } from 'lucide-react';
 import { Board } from '@/types';
 import { useUpdateBoard } from '@/lib/query/hooks/useBoardsQuery';
 import { useDealsByBoard } from '@/lib/query/hooks/useDealsQuery';
 import { useUIState } from '@/store/uiState';
-
-// Performance: reuse formatter instances.
-const BRL_CURRENCY_FORMATTER = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+import { useBoardGoalHistory, useArchiveBoardGoal } from '@/lib/query/hooks/useBoardGoalHistoryQuery';
+import { calcularProgressoMeta, formatPeriodo } from '@/lib/boards/goal-progress';
 
 interface BoardStrategyHeaderProps {
   board: Board;
@@ -31,56 +31,20 @@ interface BoardStrategyHeaderProps {
 export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board }) => {
   const updateBoardMutation = useUpdateBoard();
   const { data: deals = [] } = useDealsByBoard(board.id);
+  // ARK #53: metas anteriores deste funil + arquivamento ao trocar a meta
+  const { data: goalHistory = [] } = useBoardGoalHistory(board.id);
+  const archiveGoal = useArchiveBoardGoal();
+  const [showHistory, setShowHistory] = useState(false);
   const { setIsGlobalAIOpen } = useUIState();
   const [isEditing, setIsEditing] = useState(false);
   const [editedBoard, setEditedBoard] = useState(board);
 
-  // Calculate Progress Automatically
-  const calculatedProgress = React.useMemo(() => {
-    const type = board.goal?.type || 'currency';
-
-    /**
-     * Performance: avoid `deals.filter(...)` + extra passes over the boardDeals.
-     * We scan once and compute the aggregates we need.
-     */
-    // ARK: a meta e de GANHOS, igual ao relatorio. O upstream somava todo negocio do funil
-    // (aberto + ganho), entao "20 matriculas" contava lead novo como progresso.
-    let wonCount = 0;
-    let lostCount = 0;
-    let wonValue = 0;
-    for (const d of deals) {
-      if (d.boardId !== board.id) continue;
-      if (d.isWon) {
-        wonCount += 1;
-        wonValue += d.value || 0;
-      } else if (d.isLost) {
-        lostCount += 1;
-      }
-    }
-
-    if (type === 'currency') {
-      return {
-        value: wonValue,
-        display: BRL_CURRENCY_FORMATTER.format(wonValue),
-      };
-    }
-
-    if (type === 'percentage') {
-      const closed = wonCount + lostCount;
-      if (closed === 0) return { value: 0, display: '0%' };
-      const percent = Math.round((wonCount / closed) * 100);
-      return {
-        value: percent,
-        display: `${percent}%`,
-      };
-    }
-
-    // Default: Number = negocios ganhos
-    return {
-      value: wonCount,
-      display: wonCount.toString(),
-    };
-  }, [deals, board.id, board.goal?.type]);
+  // ARK: a meta e de GANHOS, igual ao relatorio; com periodo (ARK #53) so contam os
+  // ganhos fechados dentro da janela. Calculo em lib/boards/goal-progress.
+  const calculatedProgress = React.useMemo(
+    () => calcularProgressoMeta(board.goal, deals, board.id),
+    [deals, board.id, board.goal]
+  );
 
   // Performance: parse target once per goal change (instead of per render).
   // Hook must live before any early returns (rules-of-hooks).
@@ -121,6 +85,15 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
   }
 
   const handleSave = () => {
+    // ARK #53: trocar a meta (KPI ou alvo diferentes) guarda a anterior com o resultado
+    // que ela tinha neste momento. Mexer so em descricao/datas nao arquiva.
+    const anterior = board.goal;
+    const nova = editedBoard.goal;
+    const tinhaMeta = Boolean(anterior && (anterior.kpi || anterior.targetValue));
+    const metaTrocou = tinhaMeta && (!nova || anterior!.kpi !== nova.kpi || anterior!.targetValue !== nova.targetValue);
+    if (metaTrocou) {
+      archiveGoal.mutate({ boardId: board.id, boardName: board.name, goal: anterior!, progress: calculatedProgress });
+    }
     updateBoardMutation.mutate({
       id: board.id,
       updates: {
@@ -278,6 +251,38 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
                     </div>
                   </div>
 
+                  {/* ARK #53: periodo da meta — so ganhos fechados dentro dele contam */}
+                  <div className="flex gap-3">
+                    <label className="flex-1 text-[10px] text-slate-400 font-medium">
+                      Início
+                      <input
+                        type="date"
+                        className="mt-1 w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-blue-500/50"
+                        value={editedBoard.goal?.startDate || ''}
+                        onChange={e =>
+                          setEditedBoard({
+                            ...editedBoard,
+                            goal: { ...editedBoard.goal!, startDate: e.target.value || undefined },
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="flex-1 text-[10px] text-slate-400 font-medium">
+                      Fim
+                      <input
+                        type="date"
+                        className="mt-1 w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-blue-500/50"
+                        value={editedBoard.goal?.endDate || ''}
+                        onChange={e =>
+                          setEditedBoard({
+                            ...editedBoard,
+                            goal: { ...editedBoard.goal!, endDate: e.target.value || undefined },
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+
                   {/* Goal Context */}
                   <textarea
                     className="w-full h-24 bg-transparent border border-slate-200 dark:border-white/10 rounded-lg p-3 text-xs text-slate-600 dark:text-slate-300 focus:outline-none focus:border-blue-500/50 resize-none transition-all"
@@ -366,6 +371,9 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
                   <span className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate mt-0.5">
                     {board.goal?.kpi}
                   </span>
+                  {formatPeriodo(board.goal) && (
+                    <span className="text-[10px] text-slate-400 mt-0.5">{formatPeriodo(board.goal)}</span>
+                  )}
                 </div>
 
                 {/* Sleek Progress Bar */}
@@ -377,6 +385,14 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
                 </div>
                 <div className="flex justify-between text-[9px] font-medium text-slate-400 uppercase tracking-wider">
                   <span>{calculatedProgress.display} Concluído</span>
+                  {goalHistory.length > 0 && (
+                    <button
+                      onClick={() => setShowHistory(v => !v)}
+                      className="inline-flex items-center gap-1 border-b border-dotted border-slate-600 hover:text-blue-400 transition-colors uppercase"
+                    >
+                      <History size={10} /> Metas anteriores ({goalHistory.length})
+                    </button>
+                  )}
                   <div className="group/goal relative cursor-help">
                     <span className="border-b border-dotted border-slate-600 hover:text-blue-400 transition-colors">
                       Detalhes
@@ -444,6 +460,28 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
                 </div>
               </div>
             </div>
+            {/* ARK #53: metas que ja foram trocadas neste funil */}
+            {showHistory && goalHistory.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-slate-100 dark:border-white/5 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {goalHistory.map(h => {
+                  const alvo = parseFloat((h.targetValue || '0').replace(/[^0-9.]/g, '')) || 0;
+                  const pct = alvo === 0 ? 0 : Math.min(100, Math.round((h.achievedValue / alvo) * 100));
+                  return (
+                    <div key={h.id} className="rounded-lg bg-slate-50 dark:bg-white/5 px-3 py-2 text-xs">
+                      <div className="flex justify-between items-baseline">
+                        <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">{h.kpi || 'Meta'}</span>
+                        <span className={`font-mono font-bold ${pct >= 100 ? 'text-green-500' : 'text-amber-500'}`}>
+                          {h.achievedDisplay} / {h.targetValue} · {pct}%
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {formatPeriodo(h) ?? 'sem período'} · encerrada em {new Date(h.archivedAt).toLocaleDateString('pt-BR')}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
       </div>
