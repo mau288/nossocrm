@@ -15,6 +15,7 @@ import { ActivityFeedItem } from './components/ActivityFeedItem';
 import { PipelineAlertsModal } from './components/PipelineAlertsModal';
 import { AIMetricsSection } from './components/AIMetricsSection';
 import { MessagingMetricsSection } from './components/MessagingMetricsSection';
+import { MetasHistoricoSection } from './components/MetasHistoricoSection';
 import { useDashboardMetrics, PeriodFilter, COMPARISON_LABELS } from './hooks/useDashboardMetrics';
 import { PeriodFilterSelect } from '@/components/filters/PeriodFilterSelect';
 import { LazyFunnelChart, ChartWrapper } from '@/components/charts';
@@ -357,6 +358,9 @@ const DashboardPage: React.FC = () => {
       <div className="shrink-0">
         <FunnelOverview />
       </div>
+
+      {/* ARK #53: historico de metas dos funis — base do grafico de metas que vem depois */}
+      <MetasHistoricoSection />
 
       {/* Pipeline Alerts Modal */}
       <PipelineAlertsModal
