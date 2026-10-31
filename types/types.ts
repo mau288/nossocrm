@@ -410,6 +410,44 @@ export interface SellerGoalProgress {
   status: SellerGoalStatus;
 }
 
+// ARK Onda 3 (3.4): alertas do gestor no WhatsApp
+export interface GestaoAlertRecipient {
+  name?: string;
+  /** so digitos, com DDI (ex.: 5511999999999) */
+  phone: string;
+}
+
+export interface GestaoAlertSettings {
+  organizationId: string;
+  enabled: boolean;
+  /** chip Evolution que envia */
+  channelId: string | null;
+  recipients: GestaoAlertRecipient[];
+  alertWaiting: boolean;
+  alertWebhook: boolean;
+  alertGoals: boolean;
+  slaMinutes: number;
+  maxHours: number;
+  hoursStart: number;
+  hoursEnd: number;
+  weekdaysOnly: boolean;
+  webhookErrorThreshold: number;
+  cooldownMinutes: number;
+  goalsHour: number;
+  updatedAt?: string;
+}
+
+export interface GestaoAlertLogEntry {
+  id: string;
+  alertType: 'waiting' | 'webhook' | 'goals' | 'test';
+  fingerprint: string | null;
+  message: string;
+  recipients: GestaoAlertRecipient[];
+  sentOk: boolean;
+  error: string | null;
+  createdAt: string;
+}
+
 // ARK #53: meta que já foi trocada, com o resultado final
 export interface BoardGoalHistoryEntry {
   id: string;

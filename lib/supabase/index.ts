@@ -7,4 +7,5 @@ export { productsService } from './products';
 export { gatewaysService, financeiroSettingsService } from './gateways';
 export { boardGoalHistoryService } from './boardGoals';
 export { sellerGoalsService } from './sellerGoals';
+export { gestaoAlertsService } from './gestaoAlerts';
 export { settingsService, lifecycleStagesService } from './settings';
