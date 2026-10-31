@@ -15,7 +15,7 @@
  */
 
 import { supabase } from './client';
-import { Deal, DealItem, OrganizationId } from '@/types';
+import { Deal, DealItem, DealView, OrganizationId } from '@/types';
 import { sanitizeUUID, requireUUID, isValidUUID } from './utils';
 
 // =============================================================================
@@ -324,6 +324,65 @@ export const dealsService = {
 
       const deals = (data || []).map(d => transformDeal(d as DbDealWithItems));
       return { data: deals, error: null };
+    } catch (e) {
+      return { data: null, error: e as Error };
+    }
+  },
+
+  /**
+   * ARK (Onda 1 / 1.3): negocios de UM board, ja enriquecidos numa unica query
+   * (contato, empresa e etapa por embed). Antes o Kanban baixava todos os funis
+   * (limit 1000 + deal_items), depois contatos por lista de ids e empresas, e filtrava
+   * o board no navegador — 4 chamadas para mostrar 56 cards.
+   *
+   * @param boardId - ID do board.
+   * @returns Promise com DealView[] do board ou erro.
+   */
+  async getByBoard(boardId: string, options?: { signal?: AbortSignal }): Promise<{ data: DealView[] | null; error: Error | null }> {
+    try {
+      if (!supabase) {
+        return { data: null, error: new Error('Supabase não configurado') };
+      }
+      const safeBoardId = sanitizeUUID(boardId);
+      if (!safeBoardId) return { data: [], error: null };
+
+      let query = supabase
+        .from('deals')
+        .select(`
+          *,
+          deal_items (*),
+          ${OWNER_EMBED},
+          contact:contacts!contact_id (id, name, email, phone),
+          company:crm_companies!client_company_id (id, name),
+          stage:board_stages!stage_id (id, label, name)
+        `)
+        .eq('board_id', safeBoardId);
+      if (options?.signal) query = query.abortSignal(options.signal);
+      const { data, error } = await query
+        .order('created_at', { ascending: false })
+        .limit(1000);
+
+      if (error) return { data: null, error };
+
+      type Row = DbDealWithItems & {
+        contact?: { id: string; name: string | null; email: string | null; phone: string | null } | null;
+        company?: { id: string; name: string | null } | null;
+        stage?: { id: string; label: string | null; name: string | null } | null;
+      };
+      const views: DealView[] = (data || []).map((raw) => {
+        const row = raw as unknown as Row;
+        const deal = transformDeal(row);
+        return {
+          ...deal,
+          companyName: row.company?.name || 'Sem empresa',
+          clientCompanyName: row.company?.name || 'Sem empresa',
+          contactName: row.contact?.name || 'Sem contato',
+          contactEmail: row.contact?.email || '',
+          contactPhone: row.contact?.phone || '',
+          stageLabel: row.stage?.label || row.stage?.name || 'Estágio não identificado',
+        } as DealView;
+      });
+      return { data: views, error: null };
     } catch (e) {
       return { data: null, error: e as Error };
     }

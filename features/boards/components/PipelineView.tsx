@@ -376,12 +376,16 @@ export const PipelineView: React.FC<PipelineViewProps> = ({
         </>
       )}
 
-      <CreateDealModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        activeBoard={activeBoard}
-        activeBoardId={activeBoardId ?? undefined}
-      />
+      {/* ARK (Onda 1 / 1.3): so monta aberto — o seletor de contato dele baixava os 1.000
+          contatos (604 KB) em todo Kanban, mesmo fechado. */}
+      {isCreateModalOpen && (
+        <CreateDealModal
+          isOpen
+          onClose={() => setIsCreateModalOpen(false)}
+          activeBoard={activeBoard}
+          activeBoardId={activeBoardId ?? undefined}
+        />
+      )}
 
       {selectedDealId && (
         <DealDetailModal

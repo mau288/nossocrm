@@ -12,7 +12,8 @@
  * - Optimistic updates for instant UI feedback
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { queryKeys, DEALS_VIEW_KEY } from '../queryKeys';
+import { queryKeys } from '../queryKeys';
+import { snapshotDealsViewCaches, setDealsViewCaches, restoreDealsViewCaches } from '../dealsViewCache';
 import { dealsService } from '@/lib/supabase';
 import { boardsService } from '@/lib/supabase/boards'; // Added
 import { activitiesService } from '@/lib/supabase/activities';
@@ -247,7 +248,7 @@ export const useMoveDeal = () => {
       await queryClient.cancelQueries({ queryKey: queryKeys.deals.all });
 
       // Snapshot previous state - usa DEALS_VIEW_KEY (única fonte de verdade)
-      const previousDeals = queryClient.getQueryData<DealView[]>(DEALS_VIEW_KEY);
+      const previousDeals = snapshotDealsViewCaches(queryClient);
 
       // Determine new status
       const targetStage = board.stages.find(s => s.id === targetStageId);
@@ -263,8 +264,7 @@ export const useMoveDeal = () => {
         || (board.lostStageId ? targetStageId === board.lostStageId : targetStage?.linkedLifecycleStage === 'OTHER');
 
       // Optimistically update APENAS DEALS_VIEW_KEY (única fonte de verdade)
-      queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old) => {
-        if (!old) return old;
+      setDealsViewCaches(queryClient, (old) => {
         
         const dealInCache = old.find(d => d.id === dealId);
         // #region agent log
@@ -324,7 +324,7 @@ export const useMoveDeal = () => {
     // Rollback on error
     onError: (_err, _variables, context) => {
       if (context?.previousDeals) {
-        queryClient.setQueryData(DEALS_VIEW_KEY, context.previousDeals);
+        restoreDealsViewCaches(queryClient, context.previousDeals);
       }
     },
 

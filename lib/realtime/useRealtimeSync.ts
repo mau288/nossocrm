@@ -12,7 +12,8 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { queryKeys, DEALS_VIEW_KEY } from '@/lib/query/queryKeys';
+import { queryKeys } from '@/lib/query/queryKeys';
+import { setDealsViewCaches } from '@/lib/query/dealsViewCache';
 import { useAuth } from '@/context/AuthContext';
 import { setRealtimeChannelConnected, forgetRealtimeChannel } from '@/lib/realtime/status';
 import {
@@ -294,12 +295,6 @@ export function useRealtimeSync(
                     queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all, refetchType: 'active' });
                   }
                   return;
-                        }
-                        queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
-                      });
-                    });
-                  }
-                  return;
                 }
 
                 // Inbound message: inject directly into the infinite query cache.
@@ -334,12 +329,6 @@ export function useRealtimeSync(
                 queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.unreadCount() });
                 if (!knownIn && pendingDeletionIds.size === 0) {
                   queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all, refetchType: 'active' });
-                }
-                return;
-                      }
-                      queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
-                    });
-                  });
                 }
                 return;
               }
@@ -531,9 +520,7 @@ export function useRealtimeSync(
               // CRÍTICO: Atualizar APENAS DEALS_VIEW_KEY (única fonte de verdade)
               // O Kanban (useDealsByBoard) agora usa essa mesma query com filtragem client-side
               // NÃO usar setQueriesData com prefix matcher - isso atualiza queries erradas!
-              queryClient.setQueryData<DealView[]>(
-                DEALS_VIEW_KEY,
-                (old) => {
+              setDealsViewCaches(queryClient, (old) => {
                   if (!old || !Array.isArray(old)) return old;
                   
                   // Check if deal already exists (by real ID)
@@ -643,9 +630,7 @@ export function useRealtimeSync(
               // This avoids race condition where invalidation refetches stale data
               // IMPORTANT: Only apply if the incoming status is different from current cache status
               // This prevents Realtime from reverting optimistic updates with stale data
-              queryClient.setQueryData<DealView[]>(
-                DEALS_VIEW_KEY,
-                (old) => {
+              setDealsViewCaches(queryClient, (old) => {
                   if (!old || !Array.isArray(old)) {
                     // #region agent log
                     if (process.env.NODE_ENV !== 'production') {
