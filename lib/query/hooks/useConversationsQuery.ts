@@ -546,7 +546,7 @@ export function useUpdateConversation() {
 
       // Optimistically update list caches (array antigo ou paginas novas).
       updateConversationLists(queryClient, (list) =>
-        list.map((conv) => (conv.id === conversationId ? { ...conv, ...updates } : conv))
+        list.map((conv) => (conv.id === conversationId ? ({ ...conv, ...updates } as ConversationView) : conv))
       );
 
       // Also optimistically update the detail query so the header dropdown
