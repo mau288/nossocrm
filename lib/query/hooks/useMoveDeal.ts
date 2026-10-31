@@ -13,7 +13,7 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../queryKeys';
-import { snapshotDealsViewCaches, setDealsViewCaches, restoreDealsViewCaches } from '../dealsViewCache';
+import { snapshotDealsViewCaches, setDealsViewCaches, restoreDealsViewCaches, type DealsViewSnapshot } from '../dealsViewCache';
 import { dealsService } from '@/lib/supabase';
 import { boardsService } from '@/lib/supabase/boards'; // Added
 import { activitiesService } from '@/lib/supabase/activities';
@@ -41,7 +41,7 @@ interface MoveDealResult {
 
 // Context type for optimistic updates
 interface MoveDealContext {
-  previousDeals: DealView[] | undefined;
+  previousDeals: DealsViewSnapshot | undefined;
 }
 
 /**
