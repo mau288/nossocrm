@@ -15,7 +15,7 @@ import { PipelineAlertsModal } from './components/PipelineAlertsModal';
 import { AIMetricsSection } from './components/AIMetricsSection';
 import { MessagingMetricsSection } from './components/MessagingMetricsSection';
 import { MetasHistoricoSection } from './components/MetasHistoricoSection';
-import { useDashboardMetrics, PeriodFilter, COMPARISON_LABELS } from './hooks/useDashboardMetrics';
+import { useDashboardMetrics, PeriodFilter, comparisonLabel } from './hooks/useDashboardMetrics';
 import { PeriodFilterSelect } from '@/components/filters/PeriodFilterSelect';
 import { LazyFunnelChart, ChartWrapper } from '@/components/charts';
 import { SkeletonStatCard } from '@/components/ui/Skeleton';
@@ -97,7 +97,8 @@ const DashboardPage: React.FC = () => {
   const revenueChangeInfo = formatChange(changes.revenue);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-7rem)] space-y-4">
+    // ARK: altura minima (nao fixa) + respiro embaixo — a pagina cortava o Historico de metas no fim
+    <div className="flex flex-col min-h-[calc(100vh-7rem)] space-y-4 pb-10">
       <div className="flex justify-between items-center shrink-0">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white font-display tracking-tight">
@@ -155,7 +156,7 @@ const DashboardPage: React.FC = () => {
             icon={DollarSign}
             variant="info"
             onClick={() => router.push('/boards')}
-            comparisonLabel={COMPARISON_LABELS[period]}
+            comparisonLabel={comparisonLabel(period)}
           />
           <StatCard
             title="Negócios Ativos"
@@ -165,7 +166,7 @@ const DashboardPage: React.FC = () => {
             icon={Users}
             variant="purple"
             onClick={() => router.push('/boards?status=open')}
-            comparisonLabel={COMPARISON_LABELS[period]}
+            comparisonLabel={comparisonLabel(period)}
           />
           <StatCard
             title="Conversão"
@@ -175,7 +176,7 @@ const DashboardPage: React.FC = () => {
             icon={Target}
             variant="success"
             onClick={() => router.push('/reports')}
-            comparisonLabel={COMPARISON_LABELS[period]}
+            comparisonLabel={comparisonLabel(period)}
           />
           <StatCard
             title="Receita (Ganha)"
@@ -185,7 +186,7 @@ const DashboardPage: React.FC = () => {
             icon={TrendingUp}
             variant="warning"
             onClick={() => router.push('/boards?status=won&view=list')}
-            comparisonLabel={COMPARISON_LABELS[period]}
+            comparisonLabel={comparisonLabel(period)}
           />
         </div>
       )}
