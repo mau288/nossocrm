@@ -8,6 +8,7 @@ import { queryKeys } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import { sanitizeUrl } from '@/lib/utils/sanitize';
 import { useSendMessage } from '@/lib/query/hooks/useMessagingMessagesQuery';
+import { renderWhatsAppText, stripWhatsAppMarkup } from '@/lib/messaging/format-whatsapp';
 import type {
   MessagingMessage,
   MessageStatus,
@@ -119,7 +120,7 @@ const AudioPlayer = memo(function AudioPlayer({
         className={cn(
           'flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors',
           isOutbound
-            ? 'bg-white/25 hover:bg-white/40 text-white'
+            ? 'bg-black/15 hover:bg-black/25 text-black'
             : 'bg-slate-700 hover:bg-slate-600 dark:bg-slate-200 dark:hover:bg-white text-white dark:text-slate-900',
           !safeUrl && 'opacity-40 cursor-not-allowed',
         )}
@@ -149,8 +150,8 @@ const AudioPlayer = memo(function AudioPlayer({
               className={cn(
                 'w-[3px] rounded-full transition-colors duration-75',
                 active
-                  ? isOutbound ? 'bg-white' : 'bg-slate-700 dark:bg-slate-200'
-                  : isOutbound ? 'bg-white/35' : 'bg-slate-300 dark:bg-slate-600',
+                  ? isOutbound ? 'bg-black/80' : 'bg-slate-700 dark:bg-slate-200'
+                  : isOutbound ? 'bg-black/30' : 'bg-slate-300 dark:bg-slate-600',
               )}
               style={{ height: `${pct}%` }}
             />
@@ -162,7 +163,7 @@ const AudioPlayer = memo(function AudioPlayer({
       <span
         className={cn(
           'flex-shrink-0 text-[11px] font-mono tabular-nums w-8 text-right',
-          isOutbound ? 'text-white/70' : 'text-slate-500 dark:text-slate-400',
+          isOutbound ? 'text-black/60' : 'text-slate-500 dark:text-slate-400',
         )}
       >
         {formatAudioTime(isPlaying ? currentTime : duration)}
@@ -182,19 +183,22 @@ interface MessageBubbleProps {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-const StatusIcon = memo(function StatusIcon({ status }: { status: MessageStatus }) {
+// ARK (Onda 0 / 0.4): a bolha enviada e amarela (#ffd700, cor da marca). Cinza-claro e
+// branco sumiam nela; dentro da bolha os icones usam tons escuros.
+const StatusIcon = memo(function StatusIcon({ status, onYellow = false }: { status: MessageStatus; onYellow?: boolean }) {
+  const muted = onYellow ? 'text-black/55' : 'text-slate-400';
   switch (status) {
     case 'pending':
     case 'queued':
-      return <Clock className="w-3 h-3 text-slate-400" />;
+      return <Clock className={cn('w-3 h-3', muted)} />;
     case 'sent':
-      return <Check className="w-3 h-3 text-slate-400" />;
+      return <Check className={cn('w-3 h-3', muted)} />;
     case 'delivered':
-      return <CheckCheck className="w-3 h-3 text-slate-400" />;
+      return <CheckCheck className={cn('w-3 h-3', muted)} />;
     case 'read':
-      return <CheckCheck className="w-3 h-3 text-blue-500" />;
+      return <CheckCheck className={cn('w-3 h-3', onYellow ? 'text-blue-700' : 'text-blue-500')} />;
     case 'failed':
-      return <AlertCircle className="w-3 h-3 text-red-500" />;
+      return <AlertCircle className={cn('w-3 h-3', onYellow ? 'text-red-700' : 'text-red-500')} />;
     default:
       return null;
   }
@@ -207,7 +211,7 @@ const MessageContent = memo(function MessageContent({ message }: { message: Mess
   switch (contentType) {
     case 'text': {
       const textContent = content as TextContent;
-      return <p className="whitespace-pre-wrap break-words">{textContent.text}</p>;
+      return <div className="whitespace-pre-wrap break-words">{renderWhatsAppText(textContent.text)}</div>;
     }
 
     case 'image': {
@@ -230,7 +234,7 @@ const MessageContent = memo(function MessageContent({ message }: { message: Mess
             </div>
           )}
           {imageContent.caption && (
-            <p className="whitespace-pre-wrap break-words">{imageContent.caption}</p>
+            <div className="whitespace-pre-wrap break-words">{renderWhatsAppText(imageContent.caption)}</div>
           )}
         </div>
       );
@@ -246,7 +250,7 @@ const MessageContent = memo(function MessageContent({ message }: { message: Mess
           rel="noopener noreferrer"
           className="flex items-center gap-2 p-2 bg-black/5 dark:bg-white/5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
         >
-          <FileText className="w-8 h-8 text-primary-500" />
+          <FileText className={cn('w-8 h-8', isOutbound ? 'text-black/70' : 'text-primary-500')} />
           <div className="min-w-0">
             <p className="font-medium truncate">{docContent.fileName}</p>
             {docContent.fileSize && (
@@ -305,7 +309,7 @@ const MessageContent = memo(function MessageContent({ message }: { message: Mess
             playsInline
             className="max-w-[280px] max-h-80 rounded-lg bg-black"
           />
-          {v.caption && <p className="whitespace-pre-wrap break-words">{v.caption}</p>}
+          {v.caption && <div className="whitespace-pre-wrap break-words">{renderWhatsAppText(v.caption)}</div>}
         </div>
       );
     }
@@ -446,7 +450,7 @@ function EmojiPickerButton({
 function replyPreviewText(msg: MessagingMessage): string {
   const c = msg.content as unknown as Record<string, unknown>;
   switch (msg.contentType) {
-    case 'text': return (c.text as string) || '';
+    case 'text': return stripWhatsAppMarkup((c.text as string) || '');
     case 'audio': return '🎤 Áudio';
     case 'image': return '📷 Foto';
     case 'video': return '🎥 Vídeo';
@@ -522,7 +526,7 @@ export const MessageBubble = memo(function MessageBubble({
           className={cn(
             'rounded-2xl px-4 py-2 shadow-sm',
             isOutbound
-              ? 'bg-primary-500 text-white rounded-br-md'
+              ? 'bg-primary-500 text-black rounded-br-md'
               : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-bl-md border border-slate-200 dark:border-slate-700',
           )}
         >
@@ -532,12 +536,12 @@ export const MessageBubble = memo(function MessageBubble({
               className={cn(
                 'flex gap-2 mb-2 pl-2 py-1 rounded-lg border-l-2 text-xs',
                 isOutbound
-                  ? 'border-white/60 bg-white/10 text-white/80'
+                  ? 'border-black/50 bg-black/10 text-black/80'
                   : 'border-primary-400 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
               )}
             >
               <div className="min-w-0">
-                <p className={cn('font-medium truncate text-[10px] mb-0.5', isOutbound ? 'text-white/60' : 'text-primary-500')}>
+                <p className={cn('font-medium truncate text-[10px] mb-0.5', isOutbound ? 'text-black/60' : 'text-primary-500')}>
                   {repliedToMessage.direction === 'outbound' ? 'Você' : (repliedToMessage.senderName ?? 'Contato')}
                 </p>
                 <p className="truncate">{replyPreviewText(repliedToMessage)}</p>
@@ -567,7 +571,7 @@ export const MessageBubble = memo(function MessageBubble({
           <div
             className={cn(
               'flex items-center justify-end gap-1 mt-1',
-              isOutbound ? 'text-white/70' : 'text-slate-400',
+              isOutbound ? 'text-black/60' : 'text-slate-400',
             )}
           >
             {Boolean(message.metadata?.edited) && (
@@ -583,12 +587,12 @@ export const MessageBubble = memo(function MessageBubble({
               </span>
             )}
             <span className="text-[10px]">{time}</span>
-            {isOutbound && <StatusIcon status={message.status} />}
+            {isOutbound && <StatusIcon status={message.status} onYellow />}
           </div>
 
           {/* Error detail */}
           {message.status === 'failed' && message.errorMessage && (
-            <p className="text-xs text-red-300 mt-1">{message.errorMessage}</p>
+            <p className={cn('text-xs mt-1', isOutbound ? 'text-red-800' : 'text-red-500')}>{message.errorMessage}</p>
           )}
         </div>
 

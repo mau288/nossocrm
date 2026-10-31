@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useId, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  useContacts,
-  useActivities,
+  useContact,
+  useActivitiesByDeal,
   useBoards,
   useLifecycleStages,
   useUpdateDeal,
@@ -100,8 +100,6 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   const addItemToDeal = (dealId: string, item: Omit<import('@/types').DealItem, 'id'>) => addDealItemMutation.mutateAsync({ dealId, item });
   const removeItemFromDeal = (dealId: string, itemId: string) => removeDealItemMutation.mutateAsync({ dealId, itemId });
 
-  const { data: contacts = [] } = useContacts();
-  const { data: activities = [] } = useActivities();
   const { data: boards = [] } = useBoards();
   const { activeBoardId } = useUIState();
   const activeBoard = boards.find(b => b.id === activeBoardId) || boards.find(b => b.isDefault) || boards[0] || null;
@@ -130,14 +128,16 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
 
   // Performance: avoid repeated `find(...)` on large arrays.
   const dealsById = useMemo(() => new Map(allDeals.map((d) => [d.id, d])), [allDeals]);
-  const contactsById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts]);
   const boardsById = useMemo(() => new Map(boards.map((b) => [b.id, b])), [boards]);
   const lifecycleStageById = useMemo(() => new Map(lifecycleStages.map((s) => [s.id, s])), [lifecycleStages]);
   const productsById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
-  const activitiesById = useMemo(() => new Map(activities.map((a) => [a.id, a])), [activities]);
 
   const deal = dealId ? dealsById.get(dealId) : undefined;
-  const contact = deal ? (contactsById.get(deal.contactId) ?? null) : null;
+  // ARK (Onda 0 / 0.5): so o contato e as atividades DESTE negocio (1 linha + N linhas),
+  // em vez de baixar contatos (604 KB) e atividades inteiros para achar os dele.
+  const { data: contact = null } = useContact(deal?.contactId);
+  const { data: activities = [] } = useActivitiesByDeal(deal?.id);
+  const activitiesById = useMemo(() => new Map(activities.map((a) => [a.id, a])), [activities]);
 
   // Determine the correct board for this deal
   const dealBoard = deal ? (boardsById.get(deal.boardId) ?? activeBoard) : activeBoard;

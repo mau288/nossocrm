@@ -60,8 +60,8 @@ export const ContactFormModal: React.FC<ContactFormModalProps> = ({
   
   if (!isOpen) return null;
 
-  const fillWithFakeData = () => {
-    const fake = fakeContact();
+  const fillWithFakeData = async () => {
+    const fake = await fakeContact();
     setFormData({
       name: fake.name,
       email: fake.email,

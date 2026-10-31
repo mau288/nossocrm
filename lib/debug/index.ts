@@ -1,55 +1,29 @@
 /**
  * Debug Mode - Sistema de geração de dados fake para testes
- * 
+ *
  * Ativar: localStorage.setItem('DEBUG_MODE', 'true')
  * Desativar: localStorage.removeItem('DEBUG_MODE')
- * 
+ *
  * Ou via console: window.enableDebugMode() / window.disableDebugMode()
+ *
+ * ARK (Onda 0 / 0.7): o Faker (pt_BR, ~1 MB) era importado estaticamente aqui e,
+ * como o Layout importa `isDebugMode` deste arquivo, ia parar no bundle de TODAS as
+ * telas. Agora as flags vivem em `./mode` (sem dependencias) e o Faker so e carregado
+ * sob demanda, dentro dos geradores (import dinamico).
  */
 
-import { faker } from '@faker-js/faker/locale/pt_BR';
+import type { Faker } from '@faker-js/faker';
 
-// ============================================
-// DEBUG MODE CHECK
-// ============================================
+export { DEBUG_MODE_EVENT, isDebugMode, enableDebugMode, disableDebugMode } from './mode';
 
-export const DEBUG_MODE_EVENT = 'debug_mode_changed';
-
-/**
- * Função pública `isDebugMode` do projeto.
- * @returns {boolean} Retorna um valor do tipo `boolean`.
- */
-export const isDebugMode = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  return localStorage.getItem('DEBUG_MODE') === 'true';
+let fakerPromise: Promise<Faker> | null = null;
+/** Carrega o Faker pt_BR uma unica vez, e so quando algum gerador e chamado. */
+const loadFaker = (): Promise<Faker> => {
+  if (!fakerPromise) {
+    fakerPromise = import('@faker-js/faker/locale/pt_BR').then((m) => m.faker);
+  }
+  return fakerPromise;
 };
-
-/**
- * Função pública `enableDebugMode` do projeto.
- * @returns {void} Não retorna valor.
- */
-export const enableDebugMode = (): void => {
-  localStorage.setItem('DEBUG_MODE', 'true');
-  window.dispatchEvent(new CustomEvent(DEBUG_MODE_EVENT));
-  console.log('🐛 Debug mode ENABLED');
-};
-
-/**
- * Função pública `disableDebugMode` do projeto.
- * @returns {void} Não retorna valor.
- */
-export const disableDebugMode = (): void => {
-  localStorage.removeItem('DEBUG_MODE');
-  window.dispatchEvent(new CustomEvent(DEBUG_MODE_EVENT));
-  console.log('🐛 Debug mode DISABLED');
-};
-
-// Expõe no window para fácil acesso via console
-if (typeof window !== 'undefined') {
-  (window as any).enableDebugMode = enableDebugMode;
-  (window as any).disableDebugMode = disableDebugMode;
-  (window as any).isDebugMode = isDebugMode;
-}
 
 // ============================================
 // FAKE DATA GENERATORS
@@ -59,7 +33,9 @@ if (typeof window !== 'undefined') {
  * Função pública `fakeContact` do projeto.
  * @returns {{ name: string; email: string; phone: string; role: string; companyName: string; }} Retorna um valor do tipo `{ name: string; email: string; phone: string; role: string; companyName: string; }`.
  */
-export const fakeContact = () => ({
+export const fakeContact = async () => {
+  const faker = await loadFaker();
+  return {
   name: faker.person.fullName(),
   email: faker.internet.email().toLowerCase(),
   // Evita `fromRegExp` (pode gerar barra invertida em alguns ambientes)
@@ -70,13 +46,16 @@ export const fakeContact = () => ({
   })(),
   role: faker.person.jobTitle(),
   companyName: faker.company.name(),
-});
+  };
+};
 
 /**
  * Função pública `fakeCompany` do projeto.
  * @returns {{ name: string; industry: "Tecnologia" | "Varejo" | "Saúde" | "Educação" | "Financeiro" | "Indústria" | "Serviços" | "Construção" | "Alimentação" | "Logística"; website: string; employees: "1-10" | ... 3 more ... | "500+"; }} Retorna um valor do tipo `{ name: string; industry: "Tecnologia" | "Varejo" | "Saúde" | "Educação" | "Financeiro" | "Indústria" | "Serviços" | "Construção" | "Alimentação" | "Logística"; website: string; employees: "1-10" | ... 3 more ... | "500+"; }`.
  */
-export const fakeCompany = () => ({
+export const fakeCompany = async () => {
+  const faker = await loadFaker();
+  return {
   name: faker.company.name(),
   industry: faker.helpers.arrayElement([
     'Tecnologia',
@@ -92,13 +71,16 @@ export const fakeCompany = () => ({
   ]),
   website: faker.internet.url(),
   employees: faker.helpers.arrayElement(['1-10', '11-50', '51-200', '201-500', '500+']),
-});
+  };
+};
 
 /**
  * Função pública `fakeDeal` do projeto.
  * @returns {{ title: string; value: number; probability: 50 | 80 | 10 | 60 | 30 | 20 | 40 | 70 | 90; priority: "low" | "medium" | "high"; tags: ("Urgente" | "Enterprise" | "Renovação" | "Upsell" | "Novo Cliente" | "Indicação")[]; notes: string; }} Retorna um valor do tipo `{ title: string; value: number; probability: 50 | 80 | 10 | 60 | 30 | 20 | 40 | 70 | 90; priority: "low" | "medium" | "high"; tags: ("Urgente" | "Enterprise" | "Renovação" | "Upsell" | "Novo Cliente" | "Indicação")[]; notes: string; }`.
  */
-export const fakeDeal = () => ({
+export const fakeDeal = async () => {
+  const faker = await loadFaker();
+  return {
   title: `${faker.commerce.productAdjective()} ${faker.commerce.product()}`,
   value: faker.number.int({ min: 1000, max: 500000 }),
   probability: faker.helpers.arrayElement([10, 20, 30, 40, 50, 60, 70, 80, 90]),
@@ -108,13 +90,16 @@ export const fakeDeal = () => ({
     faker.number.int({ min: 0, max: 3 })
   ),
   notes: faker.lorem.sentence(),
-});
+  };
+};
 
 /**
  * Função pública `fakeActivity` do projeto.
  * @returns {{ title: "Reunião de apresentação" | "Ligação de follow-up" | "Enviar proposta comercial" | "Demo do produto" | "Negociar contrato" | "Visita ao cliente" | "Apresentar case de sucesso" | "Alinhar expectativas"; description: string; type: "CALL" | ... 2 more ... | "TASK"; date: string; }} Retorna um valor do tipo `{ title: "Reunião de apresentação" | "Ligação de follow-up" | "Enviar proposta comercial" | "Demo do produto" | "Negociar contrato" | "Visita ao cliente" | "Apresentar case de sucesso" | "Alinhar expectativas"; description: string; type: "CALL" | ... 2 more ... | "TASK"; date: string; }`.
  */
-export const fakeActivity = () => ({
+export const fakeActivity = async () => {
+  const faker = await loadFaker();
+  return {
   title: faker.helpers.arrayElement([
     'Reunião de apresentação',
     'Ligação de follow-up',
@@ -128,17 +113,21 @@ export const fakeActivity = () => ({
   description: faker.lorem.sentence(),
   type: faker.helpers.arrayElement(['CALL', 'MEETING', 'TASK', 'EMAIL'] as const),
   date: faker.date.soon({ days: 14 }).toISOString(),
-});
+  };
+};
 
 /**
  * Função pública `fakeProduct` do projeto.
  * @returns {{ name: string; price: number; description: string; }} Retorna um valor do tipo `{ name: string; price: number; description: string; }`.
  */
-export const fakeProduct = () => ({
+export const fakeProduct = async () => {
+  const faker = await loadFaker();
+  return {
   name: faker.commerce.productName(),
   price: faker.number.float({ min: 100, max: 10000, fractionDigits: 2 }),
   description: faker.commerce.productDescription(),
-});
+  };
+};
 
 // ============================================
 // BULK GENERATORS
@@ -150,8 +139,8 @@ export const fakeProduct = () => ({
  * @param {number} count - Parâmetro `count`.
  * @returns {{ name: string; email: string; phone: string; role: string; companyName: string; }[]} Retorna um valor do tipo `{ name: string; email: string; phone: string; role: string; companyName: string; }[]`.
  */
-export const generateFakeContacts = (count: number = 5) => {
-  return Array.from({ length: count }, () => fakeContact());
+export const generateFakeContacts = async (count: number = 5) => {
+  return Promise.all(Array.from({ length: count }, () => fakeContact()));
 };
 
 /**
@@ -160,8 +149,8 @@ export const generateFakeContacts = (count: number = 5) => {
  * @param {number} count - Parâmetro `count`.
  * @returns {{ title: string; value: number; probability: 50 | 80 | 10 | 60 | 30 | 20 | 40 | 70 | 90; priority: "low" | "medium" | "high"; tags: ("Urgente" | "Enterprise" | "Renovação" | "Upsell" | "Novo Cliente" | "Indicação")[]; notes: string; }[]} Retorna um valor do tipo `{ title: string; value: number; probability: 50 | 80 | 10 | 60 | 30 | 20 | 40 | 70 | 90; priority: "low" | "medium" | "high"; tags: ("Urgente" | "Enterprise" | "Renovação" | "Upsell" | "Novo Cliente" | "Indicação")[]; notes: string; }[]`.
  */
-export const generateFakeDeals = (count: number = 5) => {
-  return Array.from({ length: count }, () => fakeDeal());
+export const generateFakeDeals = async (count: number = 5) => {
+  return Promise.all(Array.from({ length: count }, () => fakeDeal()));
 };
 
 // ============================================

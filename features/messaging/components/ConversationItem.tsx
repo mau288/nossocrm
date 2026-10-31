@@ -6,6 +6,7 @@ import { ptBR } from 'date-fns/locale';
 import { Clock, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { sanitizeUrl } from '@/lib/utils/sanitize';
+import { stripWhatsAppMarkup } from '@/lib/messaging/format-whatsapp';
 import { ChannelIndicator } from './ChannelIndicator';
 import { PresenceIndicator } from './PresenceIndicator';
 import type { ConversationView } from '@/lib/messaging/types';
@@ -112,7 +113,7 @@ export const ConversationItem = memo(function ConversationItem({
                 : 'text-slate-500 dark:text-slate-400'
             )}
           >
-            {lastMessagePreview || 'Sem mensagens'}
+            {stripWhatsAppMarkup(lastMessagePreview) || 'Sem mensagens'}
           </p>
         </div>
 

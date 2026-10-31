@@ -77,13 +77,19 @@ export function useConversations(filters?: ConversationFilters) {
       // vinculado) e filtramos no contato embutido — "qualquer uma das tags" (overlaps).
       const tagFilter = (filters?.tags ?? []).filter(Boolean);
       const contactJoin = tagFilter.length ? 'contacts!contact_id!inner' : 'contacts!contact_id';
+      // ARK (Onda 0 / 0.1): filtro de canal no SERVIDOR. Com tipo escolhido o join vira !inner
+      // e o PostgREST so devolve conversas daquele tipo — antes a lista inteira vinha e o filtro
+      // era feito no navegador (e, como channelType nao estava na queryKey, nem refazia a busca).
+      const channelJoin = filters?.channelType
+        ? 'messaging_channels!channel_id!inner'
+        : 'messaging_channels!channel_id';
 
       // Build query with joins for denormalized data
       let query = supabase
         .from('messaging_conversations')
         .select(`
           *,
-          channel:messaging_channels!channel_id (
+          channel:${channelJoin} (
             id,
             name,
             channel_type,
@@ -116,6 +122,9 @@ export function useConversations(filters?: ConversationFilters) {
       }
       if (filters?.channelId) {
         query = query.eq('channel_id', filters.channelId);
+      }
+      if (filters?.channelType) {
+        query = query.eq('channel.channel_type', filters.channelType);
       }
       if (filters?.businessUnitId) {
         query = query.eq('business_unit_id', filters.businessUnitId);
@@ -165,6 +174,7 @@ export function useConversations(filters?: ConversationFilters) {
         };
       });
 
+      // Rede de seguranca: o servidor ja filtrou; isto so protege contra embed sem match.
       if (filters?.channelType) {
         return result.filter((conv) => conv.channelType === filters.channelType);
       }

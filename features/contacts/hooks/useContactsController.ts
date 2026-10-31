@@ -458,7 +458,7 @@ export const useContactsController = () => {
   };
 
   const createFakeContactsBatch = useCallback(async (count: number) => {
-    const fakeContacts = generateFakeContacts(count);
+    const fakeContacts = await generateFakeContacts(count);
     let createdCount = 0;
 
     for (const fake of fakeContacts) {

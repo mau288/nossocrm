@@ -29,6 +29,33 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // HELPERS
 // =============================================================================
 
+/**
+ * ARK (Onda 0 / 0.2): o supabase-js lanca PostgrestError, que NAO e instanceof Error —
+ * por isso todo erro de banco virava "Unknown error" no log. Extrai code/message/details
+ * de qualquer coisa que chegue.
+ */
+function errMsg(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const e = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+    const parts = [e.code, e.message, e.details, e.hint].filter((x) => typeof x === "string" && x) as string[];
+    if (parts.length) return parts.join(" | ").slice(0, 500);
+    try {
+      return JSON.stringify(error).slice(0, 500);
+    } catch {
+      /* ignore */
+    }
+  }
+  return String(error ?? "Unknown error");
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null;
+  if (!e || typeof e !== "object") return false;
+  if (e.code === "23505") return true;
+  return typeof e.message === "string" && /duplicate key|unique constraint/i.test(e.message);
+}
+
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
     status,
@@ -605,7 +632,7 @@ Deno.serve(async (req) => {
       .update({
         processed: true,
         processed_at: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: errMsg(error),
       })
       .eq("channel_id", channel.id)
       .eq("external_event_id", externalEventId);
@@ -614,7 +641,7 @@ Deno.serve(async (req) => {
     return json(200, {
       ok: false,
       error: "Erro ao processar webhook",
-      details: error instanceof Error ? error.message : "Unknown error",
+      details: errMsg(error),
     });
   }
 });
@@ -736,7 +763,28 @@ async function ensureConversation(
     .select("id")
     .single();
 
-  if (convCreateErr) throw convCreateErr;
+  if (convCreateErr) {
+    // ARK (Onda 0 / 0.2): message.received e conversation.started chegam com ~30 ms de
+    // diferenca e os dois passam pelo "nao existe" acima. O segundo INSERT viola
+    // messaging_conversations_unique (channel_id, external_contact_id). Em vez de derrubar
+    // o evento (era a 3a DM do TikTok perdida em 24/10), relemos a conversa que o outro
+    // criou e descartamos o contato orfao que acabamos de inserir.
+    if (isUniqueViolation(convCreateErr)) {
+      const { data: raced } = await supabase
+        .from("messaging_conversations")
+        .select("id, contact_id")
+        .eq("channel_id", channel.id)
+        .eq("external_contact_id", params.conversationExternalId)
+        .maybeSingle();
+      if (raced) {
+        if (contactId && contactId !== raced.contact_id) {
+          await supabase.from("contacts").delete().eq("id", contactId);
+        }
+        return { conversationId: raced.id, contactId: raced.contact_id, created: false };
+      }
+    }
+    throw convCreateErr;
+  }
 
   // Auto-create deal if lead routing rule exists
   if (contactId) {
@@ -867,7 +915,7 @@ async function storeMessage(
     .maybeSingle();
 
   if (msgErr) {
-    if (msgErr.message.toLowerCase().includes("duplicate")) return null;
+    if (isUniqueViolation(msgErr)) return null;
     throw msgErr;
   }
 

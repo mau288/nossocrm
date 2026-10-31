@@ -1,5 +1,5 @@
 import React from 'react';
-import { DealDetailModal } from './Modals/DealDetailModal';
+import dynamic from 'next/dynamic';
 import { CreateDealModal } from './Modals/CreateDealModal';
 import { CreateBoardModal } from './Modals/CreateBoardModal';
 import { BoardCreationWizard } from './BoardCreationWizard';
@@ -13,6 +13,14 @@ import { DealView, CustomFieldDefinition, Board, BoardStage } from '@/types';
 import { ExportTemplateModal } from './Modals/ExportTemplateModal';
 import { useAuth } from '@/context/AuthContext';
 import PageLoader from '@/components/PageLoader';
+
+// ARK (Onda 0 / 0.6): o modal do negocio (1.300 linhas + financeiro + briefing) so e
+// baixado e montado quando um card e aberto. Montado fechado ele ja disparava
+// useContacts()/useActivities() (contatos inteiros + atividades) em todo Kanban.
+const DealDetailModal = dynamic(
+  () => import('./Modals/DealDetailModal').then((m) => m.DealDetailModal),
+  { ssr: false }
+);
 
 interface PipelineViewProps {
   // Boards
@@ -375,11 +383,13 @@ export const PipelineView: React.FC<PipelineViewProps> = ({
         activeBoardId={activeBoardId ?? undefined}
       />
 
-      <DealDetailModal
-        dealId={selectedDealId}
-        isOpen={!!selectedDealId}
-        onClose={() => setSelectedDealId(null)}
-      />
+      {selectedDealId && (
+        <DealDetailModal
+          dealId={selectedDealId}
+          isOpen
+          onClose={() => setSelectedDealId(null)}
+        />
+      )}
 
       <CreateBoardModal
         isOpen={isCreateBoardModalOpen}
