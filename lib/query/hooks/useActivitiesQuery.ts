@@ -88,6 +88,23 @@ export const useActivitiesByDeal = (dealId: string | undefined) => {
 };
 
 /**
+ * ARK (Onda 1 / 1.4): as N atividades mais recentes (feed + alertas da Visão Geral).
+ */
+export const useRecentActivities = (limit = 50) => {
+  const { user, loading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: queryKeys.activities.list({ recent: limit }),
+    queryFn: async () => {
+      const { data, error } = await activitiesService.getRecent(limit);
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 60 * 1000,
+    enabled: !authLoading && !!user,
+  });
+};
+
+/**
  * Hook to fetch pending activities (not completed)
  */
 export const usePendingActivities = () => {

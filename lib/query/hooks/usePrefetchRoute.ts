@@ -4,7 +4,9 @@ import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { queryKeys, DEALS_VIEW_KEY } from '../queryKeys';
-import { dealsViewQueryFn } from './useDealsQuery';
+import { dealsBoardViewKey } from '../dealsViewCache';
+import { useUIState } from '@/store/uiState';
+import { dealsViewQueryFn, dealsBoardViewQueryFn } from './useDealsQuery';
 import { boardsService, contactsService, companiesService, activitiesService, dealsService } from '@/lib/supabase';
 
 const STALE_30S  = 30  * 1000;
@@ -25,11 +27,6 @@ type PrefetchEntry = {
  */
 const ROUTE_PREFETCH: Readonly<Record<string, PrefetchEntry[]>> = {
   '/boards': [
-    {
-      queryKey: DEALS_VIEW_KEY,
-      queryFn: () => dealsViewQueryFn(),
-      staleTime: STALE_2MIN,
-    },
     {
       queryKey: queryKeys.boards.lists(),
       queryFn: async () => {
@@ -129,6 +126,18 @@ export function usePrefetchRoute() {
 
       for (const { queryKey, queryFn, staleTime } of entries) {
         queryClient.prefetchQuery({ queryKey, queryFn, staleTime });
+      }
+
+      // ARK (Onda 1 / 1.3): o Kanban e por board — pre-aquece so o board ativo.
+      if (href === '/boards') {
+        const boardId = useUIState.getState().activeBoardId;
+        if (boardId && !boardId.startsWith('temp-')) {
+          queryClient.prefetchQuery({
+            queryKey: dealsBoardViewKey(boardId),
+            queryFn: () => dealsBoardViewQueryFn(boardId),
+            staleTime: STALE_2MIN,
+          });
+        }
       }
     },
     [queryClient, user, authLoading]

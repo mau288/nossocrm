@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, memo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import { Search, Filter, Inbox, CheckCircle, X, RefreshCw } from 'lucide-react';
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -93,7 +93,30 @@ export const ConversationList = memo(function ConversationList({
     tags: tagFilter.length ? tagFilter : undefined,
   }), [statusFilter, businessUnitId, searchQuery, channelFilter, showUnreadOnly, tagFilter]);
 
-  const { data: conversations, isLoading, error } = useConversations(filters);
+  const {
+    data: conversations,
+    isLoading,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useConversations(filters);
+
+  // ARK (Onda 1 / 1.1): lista paginada — a sentinela no fim pede a proxima pagina.
+  const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasNextPage) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) void fetchNextPage();
+      },
+      { root: listRef.current, rootMargin: '200px 0px' }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -306,7 +329,7 @@ export const ConversationList = memo(function ConversationList({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={listRef} className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {[...Array(5)].map((_, i) => (
@@ -333,15 +356,22 @@ export const ConversationList = memo(function ConversationList({
             </p>
           </div>
         ) : (
-          conversations?.map((conversation) => (
-            <ConversationItemWrapper
-              key={conversation.id}
-              conversation={conversation}
-              isSelected={conversation.id === selectedId}
-              onSelect={onSelect}
-              presenceStatus={conversation.contactId && getPresence ? getPresence(conversation.contactId) : undefined}
-            />
-          ))
+          <>
+            {conversations?.map((conversation) => (
+              <ConversationItemWrapper
+                key={conversation.id}
+                conversation={conversation}
+                isSelected={conversation.id === selectedId}
+                onSelect={onSelect}
+                presenceStatus={conversation.contactId && getPresence ? getPresence(conversation.contactId) : undefined}
+              />
+            ))}
+            {hasNextPage && (
+              <div ref={sentinelRef} className="py-3 text-center text-xs text-slate-400">
+                {isFetchingNextPage ? 'Carregando mais conversas…' : ' '}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

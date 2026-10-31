@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys, DEALS_VIEW_KEY } from '../index';
+import { dealsBoardViewKey, snapshotDealsViewCaches, setDealsViewCaches, restoreDealsViewCaches } from '../dealsViewCache';
 import { dealsService, contactsService, companiesService, boardStagesService } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import type { Deal, DealView, DealItem, Contact } from '@/types';
@@ -179,14 +180,27 @@ export const useDeal = (id: string | undefined) => {
  * que todos os componentes compartilhem o mesmo cache (Single Source of Truth).
  * A filtragem por boardId é feita via `select` no cliente.
  */
+/**
+ * ARK (Onda 1 / 1.3): queryFn do cache POR BOARD — uma query com embeds.
+ */
+export const dealsBoardViewQueryFn = async (
+  boardId: string,
+  { signal }: { signal?: AbortSignal } = {}
+): Promise<DealView[]> => {
+  const { data, error } = await dealsService.getByBoard(boardId, { signal });
+  if (error) throw error;
+  return data || [];
+};
+
 export const useDealsByBoard = (boardId: string) => {
   const { user, loading: authLoading } = useAuth();
   const selectForBoard = useMemo(() => makeSelectByBoard(boardId), [boardId]);
   return useQuery<DealView[], Error, DealView[]>({
-    // CRÍTICO: Usar a mesma query key que useDealsView para compartilhar cache
-    queryKey: [...queryKeys.deals.lists(), 'view'],
-    queryFn: ({ signal }) => dealsViewQueryFn({ signal }),
-    // Filtrar por boardId no cliente (compartilha cache mas retorna só os deals do board)
+    // ARK (Onda 1 / 1.3): cache por board (prefixo DEALS_VIEW_KEY, para mutations e
+    // realtime continuarem enxergando). Antes: cache unico com todos os funis.
+    queryKey: dealsBoardViewKey(boardId),
+    queryFn: ({ signal }) => dealsBoardViewQueryFn(boardId, { signal }),
+    // O select continua filtrando: mutations otimistas inserem em todos os caches do prefixo.
     select: selectForBoard,
     staleTime: 2 * 60 * 1000, // 2 minutes (same as useDealsView)
     enabled: !authLoading && !!user && !!boardId && !boardId.startsWith('temp-'),
@@ -243,7 +257,7 @@ export const useCreateDeal = () => {
       await queryClient.cancelQueries({ queryKey: queryKeys.deals.all });
 
       // Usa DEALS_VIEW_KEY - a única fonte de verdade
-      const previousDeals = queryClient.getQueryData<DealView[]>(DEALS_VIEW_KEY);
+      const previousDeals = snapshotDealsViewCaches(queryClient);
 
       // Optimistic update with temp ID - cria DealView parcial
       const tempId = `temp-${Date.now()}`;
@@ -269,7 +283,7 @@ export const useCreateDeal = () => {
       }
       // #endregion
 
-      queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old = []) => [tempDealView, ...old]);
+      setDealsViewCaches(queryClient, (old) => [tempDealView, ...old]);
 
       return { previousDeals, tempId };
     },
@@ -296,7 +310,7 @@ export const useCreateDeal = () => {
         stageLabel: '',
       } as DealView;
       
-      queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old = []) => {
+      setDealsViewCaches(queryClient, (old) => {
         if (!old) return [dealAsView];
         
         // Check if deal already exists (race condition: Realtime may have already added it)
@@ -329,7 +343,7 @@ export const useCreateDeal = () => {
     onError: (_error, _newDeal, context) => {
       if (context?.previousDeals) {
         // Restaura o estado anterior usando DEALS_VIEW_KEY
-        queryClient.setQueryData(DEALS_VIEW_KEY, context.previousDeals);
+        restoreDealsViewCaches(queryClient, context.previousDeals);
       }
     },
     onSettled: () => {
@@ -358,9 +372,9 @@ export const useUpdateDeal = () => {
       await queryClient.cancelQueries({ queryKey: queryKeys.deals.all });
 
       // Usa DEALS_VIEW_KEY - a única fonte de verdade
-      const previousDeals = queryClient.getQueryData<DealView[]>(DEALS_VIEW_KEY);
+      const previousDeals = snapshotDealsViewCaches(queryClient);
 
-      queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old = []) =>
+      setDealsViewCaches(queryClient, (old) =>
         old.map(deal =>
           deal.id === id ? { ...deal, ...updates, updatedAt: new Date().toISOString() } : deal
         )
@@ -375,7 +389,7 @@ export const useUpdateDeal = () => {
     },
     onError: (_error, _variables, context) => {
       if (context?.previousDeals) {
-        queryClient.setQueryData(DEALS_VIEW_KEY, context.previousDeals);
+        restoreDealsViewCaches(queryClient, context.previousDeals);
       }
     },
     onSettled: (_data, _error, { id }) => {
@@ -434,9 +448,9 @@ export const useUpdateDealStatus = () => {
       await queryClient.cancelQueries({ queryKey: queryKeys.deals.all });
 
       // Usa DEALS_VIEW_KEY - única fonte de verdade
-      const previousDeals = queryClient.getQueryData<DealView[]>(DEALS_VIEW_KEY);
+      const previousDeals = snapshotDealsViewCaches(queryClient);
 
-      queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old = []) =>
+      setDealsViewCaches(queryClient, (old) =>
         old.map(deal =>
           deal.id === id
             ? {
@@ -455,7 +469,7 @@ export const useUpdateDealStatus = () => {
     },
     onError: (_error, _variables, context) => {
       if (context?.previousDeals) {
-        queryClient.setQueryData(DEALS_VIEW_KEY, context.previousDeals);
+        restoreDealsViewCaches(queryClient, context.previousDeals);
       }
     },
     onSettled: () => {
@@ -482,9 +496,9 @@ export const useDeleteDeal = () => {
       await queryClient.cancelQueries({ queryKey: queryKeys.deals.all });
 
       // Usa DEALS_VIEW_KEY - a única fonte de verdade
-      const previousDeals = queryClient.getQueryData<DealView[]>(DEALS_VIEW_KEY);
+      const previousDeals = snapshotDealsViewCaches(queryClient);
 
-      queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old = []) =>
+      setDealsViewCaches(queryClient, (old) =>
         old.filter(deal => deal.id !== id)
       );
 
@@ -492,7 +506,7 @@ export const useDeleteDeal = () => {
     },
     onError: (_error, _id, context) => {
       if (context?.previousDeals) {
-        queryClient.setQueryData(DEALS_VIEW_KEY, context.previousDeals);
+        restoreDealsViewCaches(queryClient, context.previousDeals);
       }
     },
     onSettled: () => {
@@ -636,7 +650,7 @@ export const useCreateDealWithContact = () => {
         isWon: false,
         isLost: false,
       } as DealView;
-      queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old = []) => [tempDeal, ...old]);
+      setDealsViewCaches(queryClient, (old) => [tempDeal, ...old]);
       return { tempId };
     },
     onSuccess: (data, _vars, context) => {
@@ -649,7 +663,7 @@ export const useCreateDealWithContact = () => {
         contactPhone: '',
         stageLabel: '',
       } as DealView;
-      queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old = []) => {
+      setDealsViewCaches(queryClient, (old) => {
         const withoutTemp = old.filter((d) => d.id !== tempId);
         return [dealAsView, ...withoutTemp];
       });
@@ -657,7 +671,7 @@ export const useCreateDealWithContact = () => {
     onError: (_err, _vars, context) => {
       const tempId = (context as any)?.tempId as string | undefined;
       if (tempId) {
-        queryClient.setQueryData<DealView[]>(DEALS_VIEW_KEY, (old = []) => old.filter(d => d.id !== tempId));
+        setDealsViewCaches(queryClient, (old) => old.filter(d => d.id !== tempId));
       }
     },
     onSettled: () => {

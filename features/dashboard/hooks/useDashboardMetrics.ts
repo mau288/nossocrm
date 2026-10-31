@@ -1,6 +1,6 @@
 import React from 'react';
 import { useDeals } from '@/lib/query/hooks/useDealsQuery';
-import { useContacts } from '@/lib/query/hooks/useContactsQuery';
+import { useDashboardContactStats } from '@/lib/query/hooks/useDashboardContactStatsQuery';
 import { useBoards, useDefaultBoard } from '@/lib/query/hooks/useBoardsQuery';
 
 export type PeriodFilter =
@@ -55,7 +55,7 @@ interface DateRange {
 /**
  * Calcula o range de datas baseado no filtro de período
  */
-function getDateRange(period: PeriodFilter): DateRange {
+export function getDateRange(period: PeriodFilter): DateRange {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfToday = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
@@ -139,7 +139,7 @@ function getDateRange(period: PeriodFilter): DateRange {
 /**
  * Calcula o período anterior equivalente para comparação
  */
-function getPreviousDateRange(period: PeriodFilter): DateRange {
+export function getPreviousDateRange(period: PeriodFilter): DateRange {
   const current = getDateRange(period);
   const duration = current.end.getTime() - current.start.getTime();
 
@@ -166,15 +166,18 @@ function calculateChange(current: number, previous: number): number {
  */
 export const useDashboardMetrics = (period: PeriodFilter = 'this_month', boardId?: string) => {
   const { data: allDeals = [], isLoading: dealsLoading } = useDeals();
-  const { data: allContacts = [], isLoading: contactsLoading } = useContacts();
   const { data: boards = [] } = useBoards();
   const { data: defaultBoard } = useDefaultBoard();
-
-  const isLoading = dealsLoading || contactsLoading;
 
   // Calcular ranges de data para período atual e anterior
   const dateRange = React.useMemo(() => getDateRange(period), [period]);
   const previousDateRange = React.useMemo(() => getPreviousDateRange(period), [period]);
+
+  // ARK (Onda 1 / 1.4): saude da carteira/LTV/por estagio vem agregados do banco (1 linha),
+  // em vez de baixar os 1.000 contatos mais recentes (604 KB) e contar no navegador.
+  const { data: contactStats, isLoading: contactsLoading } = useDashboardContactStats(dateRange, previousDateRange);
+
+  const isLoading = dealsLoading || contactsLoading;
 
   // Filtrar deals por período atual e Board (se fornecido) - FLUXO/COHORT (Criados no período)
   const deals = React.useMemo(() => {
@@ -204,22 +207,6 @@ export const useDashboardMetrics = (period: PeriodFilter = 'this_month', boardId
       return periodMatch && boardMatch;
     });
   }, [allDeals, previousDateRange, boardId]);
-
-  // Filtrar contacts por período atual
-  const contacts = React.useMemo(() => {
-    return allContacts.filter(contact => {
-      const contactDate = new Date(contact.createdAt);
-      return contactDate >= dateRange.start && contactDate <= dateRange.end;
-    });
-  }, [allContacts, dateRange]);
-
-  // Filtrar contacts por período anterior
-  const previousContacts = React.useMemo(() => {
-    return allContacts.filter(contact => {
-      const contactDate = new Date(contact.createdAt);
-      return contactDate >= previousDateRange.start && contactDate <= previousDateRange.end;
-    });
-  }, [allContacts, previousDateRange]);
 
   // Calculate metrics
 
@@ -347,35 +334,18 @@ export const useDashboardMetrics = (period: PeriodFilter = 'this_month', boardId
     });
   }, [wonDeals]);
 
-  // Wallet Health Metrics - Usa TODOS os contatos (não filtrados por período)
-  // A saúde da carteira é um snapshot atual, não depende do período selecionado
-  /**
-   * Performance: compute contact buckets in a single pass (avoid 3 filters + 1 reduce).
-   */
-  const contactsBuckets = React.useMemo(() => {
-    const active: typeof allContacts = [];
-    const inactive: typeof allContacts = [];
-    const churned: typeof allContacts = [];
-    let totalLTV = 0;
-    for (const c of allContacts) {
-      totalLTV += c.totalValue || 0;
-      if (c.status === 'ACTIVE') active.push(c);
-      else if (c.status === 'INACTIVE') inactive.push(c);
-      else if (c.status === 'CHURNED') churned.push(c);
-    }
-    return { active, inactive, churned, totalLTV };
-  }, [allContacts]);
+  // Wallet Health Metrics - snapshot atual (não depende do período selecionado)
+  const activeContactsCount = contactStats?.active ?? 0;
+  const inactiveContactsCount = contactStats?.inactive ?? 0;
+  const churnedContactsCount = contactStats?.churned ?? 0;
+  const totalContacts = contactStats?.total || 1; // Avoid division by zero
 
-  const activeContacts = contactsBuckets.active;
-  const inactiveContacts = contactsBuckets.inactive;
-  const churnedContacts = contactsBuckets.churned;
-  const totalContacts = allContacts.length || 1; // Avoid division by zero
+  const activePercent = Math.round((activeContactsCount / totalContacts) * 100);
+  const inactivePercent = Math.round((inactiveContactsCount / totalContacts) * 100);
+  const churnedPercent = Math.round((churnedContactsCount / totalContacts) * 100);
 
-  const activePercent = Math.round((activeContacts.length / totalContacts) * 100);
-  const inactivePercent = Math.round((inactiveContacts.length / totalContacts) * 100);
-  const churnedPercent = Math.round((churnedContacts.length / totalContacts) * 100);
-
-  const avgLTV = activeContacts.length > 0 ? contactsBuckets.totalLTV / activeContacts.length : 0;
+  const avgLTV = activeContactsCount > 0 ? (contactStats?.totalLtv ?? 0) / activeContactsCount : 0;
+  const contactsByStage = contactStats?.byStage ?? {};
 
   // Calculate Stagnant Deals (no stage change > 10 days)
   const tenDaysAgoTs = Date.now() - 10 * 24 * 60 * 60 * 1000;
@@ -461,9 +431,10 @@ export const useDashboardMetrics = (period: PeriodFilter = 'this_month', boardId
     topDeals,
     funnelData,
     trendData,
-    activeContacts,
-    inactiveContacts,
-    churnedContacts,
+    activeContactsCount,
+    inactiveContactsCount,
+    churnedContactsCount,
+    contactsByStage,
     activePercent,
     inactivePercent,
     churnedPercent,

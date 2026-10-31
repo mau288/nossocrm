@@ -1,6 +1,6 @@
 /**
  * ARK: tags em uso nos contatos da organizacao, com contagem — alimenta o filtro de
- * conversas. Agregado no cliente (centenas de contatos; cada linha so traz o array de tags).
+ * conversas. Agregado no banco pela RPC get_contact_tag_counts (Onda 1).
  */
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
@@ -18,23 +18,14 @@ export function useContactTagsQuery() {
   return useQuery({
     queryKey: ['contactTags', orgId ?? ''],
     queryFn: async (): Promise<ContactTagCount[]> => {
-      const { data, error } = await supabase
-        .from('contacts')
-        .select('tags')
-        .eq('organization_id', orgId!)
-        .is('deleted_at', null)
-        .not('tags', 'eq', '{}');
+      // ARK (Onda 1 / 1.6): agregado no banco (unnest + group by) — antes baixava `tags`
+      // de todos os contatos e contava no navegador.
+      const { data, error } = await supabase.rpc('get_contact_tag_counts');
       if (error) throw error;
-      const counts = new Map<string, number>();
-      for (const row of (data ?? []) as Array<{ tags: string[] | null }>) {
-        for (const t of row.tags ?? []) {
-          const tag = t.trim();
-          if (tag) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-        }
-      }
-      return Array.from(counts, ([tag, count]) => ({ tag, count })).sort(
-        (a, b) => b.count - a.count || a.tag.localeCompare(b.tag),
-      );
+      return ((data ?? []) as Array<{ tag: string; count: number | string }>).map((r) => ({
+        tag: r.tag,
+        count: Number(r.count) || 0,
+      }));
     },
     enabled: !!orgId,
     staleTime: 60 * 1000,

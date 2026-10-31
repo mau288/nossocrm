@@ -26,6 +26,7 @@ import ConfirmModal from '@/components/ConfirmModal';
 import { LossReasonModal } from '@/components/ui/LossReasonModal';
 import { useMoveDealSimple } from '@/lib/query/hooks';
 import { DEALS_VIEW_KEY } from '@/lib/query';
+import { dealsBoardViewKey } from '@/lib/query/dealsViewCache';
 import { FocusTrap, useFocusReturn } from '@/lib/a11y';
 import { Activity, DealView } from '@/types';
 import { usePersistedState } from '@/hooks/usePersistedState';
@@ -120,6 +121,13 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   // Subscribe to the same cache the Kanban uses (DEALS_VIEW_KEY).
   // This ensures newly-created deals (written there by the optimistic insert in CRMContext.addDeal)
   // are immediately visible to the modal, without waiting for Realtime to update ['deals', 'list'].
+  // ARK (Onda 1 / 1.3): o Kanban agora guarda os negocios POR BOARD; o modal assina o cache
+  // do board ativo e, por compatibilidade, o cache geral (Visao Geral/Inbox).
+  const { data: boardDeals = [] } = useQuery<DealView[]>({
+    queryKey: dealsBoardViewKey(activeBoardId || ''),
+    queryFn: () => [] as DealView[], // never called — enabled: false
+    enabled: false,
+  });
   const { data: allDeals = [] } = useQuery<DealView[]>({
     queryKey: DEALS_VIEW_KEY,
     queryFn: () => [] as DealView[], // never called — enabled: false; queryFn required by TanStack Query v5
@@ -127,7 +135,10 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   });
 
   // Performance: avoid repeated `find(...)` on large arrays.
-  const dealsById = useMemo(() => new Map(allDeals.map((d) => [d.id, d])), [allDeals]);
+  const dealsById = useMemo(
+    () => new Map([...allDeals, ...boardDeals].map((d) => [d.id, d])),
+    [allDeals, boardDeals]
+  );
   const boardsById = useMemo(() => new Map(boards.map((b) => [b.id, b])), [boards]);
   const lifecycleStageById = useMemo(() => new Map(lifecycleStages.map((s) => [s.id, s])), [lifecycleStages]);
   const productsById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);

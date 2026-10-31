@@ -48,6 +48,8 @@ export const ConversationItem = memo(function ConversationItem({
     <button
       type="button"
       onClick={onClick}
+      // ARK (Onda 1 / 1.1): o navegador pula layout/pintura dos itens fora da tela.
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 76px' }}
       className={cn(
         'w-full px-4 py-3 flex items-start gap-3 transition-colors text-left',
         'hover:bg-slate-50 dark:hover:bg-white/5',

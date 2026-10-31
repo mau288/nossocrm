@@ -367,9 +367,10 @@ export const contactsService = {
       const to = from + pageSize - 1;
 
       // Build query with count (exclude soft-deleted/merged contacts)
+      // ARK (Onda 1 / 1.6): 'estimated' = exato ate max_rows (1.000), estimativa do planner acima.
       let query = supabase
         .from('contacts')
-        .select('*', { count: 'exact' })
+        .select('*', { count: 'estimated' })
         .is('deleted_at', null);
       if (options?.signal) query = query.abortSignal(options.signal);
 

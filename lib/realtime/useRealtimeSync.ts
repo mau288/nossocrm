@@ -12,11 +12,19 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { queryKeys, DEALS_VIEW_KEY } from '@/lib/query/queryKeys';
+import { queryKeys } from '@/lib/query/queryKeys';
+import { setDealsViewCaches } from '@/lib/query/dealsViewCache';
+import { useAuth } from '@/context/AuthContext';
+import { setRealtimeChannelConnected, forgetRealtimeChannel } from '@/lib/realtime/status';
+import {
+  patchConversationFromRow,
+  patchConversationFromMessage,
+  updateConversationLists,
+} from '@/lib/query/hooks/useConversationsQuery';
 import type { DealView } from '@/types';
 import type { MessagingMessage } from '@/lib/messaging';
 import { transformMessage } from '@/lib/messaging/types';
-import type { DbMessagingMessage, ConversationView } from '@/lib/messaging/types';
+import type { DbMessagingMessage } from '@/lib/messaging/types';
 import { pendingDeletionIds, removePendingDeletion } from '@/lib/query/hooks/useConversationsQuery';
 
 // Enable detailed Realtime logging in development or when DEBUG_REALTIME env var is set
@@ -97,12 +105,24 @@ interface UseRealtimeSyncOptions {
 /**
  * Subscribe to realtime changes on one or more tables
  */
+/**
+ * ARK (Onda 1 / 1.2): tabelas que tem `organization_id`. Para elas a assinatura leva
+ * `filter: organization_id=eq.<org>` — o servidor de realtime deixa de avaliar (e mandar)
+ * eventos de outras organizacoes. `messaging_messages` e `lifecycle_stages` nao tem a coluna.
+ */
+const ORG_FILTERED_TABLES: ReadonlySet<string> = new Set([
+  'deals', 'deal_items', 'contacts', 'activities', 'boards', 'board_stages',
+  'messaging_conversations', 'messaging_channels', 'products', 'profiles', 'system_notifications',
+]);
+
 export function useRealtimeSync(
   tables: RealtimeTable | RealtimeTable[],
   options: UseRealtimeSyncOptions = {}
 ) {
   const { enabled = true, debounceMs = 100, onchange } = options;
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
+  const orgId = profile?.organization_id ?? null;
   const channelRef = useRef<RealtimeChannel | null>(null);
   const isConnectedRef = useRef(false);
   const instanceIdRef = useRef(0);
@@ -156,6 +176,7 @@ export function useRealtimeSync(
           event: '*', // INSERT, UPDATE, DELETE
           schema: 'public',
           table,
+          ...(orgId && ORG_FILTERED_TABLES.has(table) ? { filter: `organization_id=eq.${orgId}` } : {}),
         },
         (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
           if (DEBUG_REALTIME) {
@@ -267,26 +288,11 @@ export function useRealtimeSync(
                     }
                   }
 
-                  // Refresh conversations list (last_message preview).
-                  pendingInvalidationsRef.current.add(queryKeys.messagingConversations.all);
-                  pendingInvalidationsRef.current.add(queryKeys.messagingConversations.unreadCount());
-                  if (!flushScheduledRef.current) {
-                    flushScheduledRef.current = true;
-                    queueMicrotask(() => {
-                      flushScheduledRef.current = false;
-                      const keysToFlush = Array.from(pendingInvalidationsRef.current);
-                      pendingInvalidationsRef.current.clear();
-                      keysToFlush.forEach((queryKey) => {
-                        // Skip conversations-list invalidation while a deletion is in-progress.
-                        // The shared ref may have been contaminated by a concurrent UPDATE event
-                        // (e.g. markAsRead). Flushing it here causes a refetch that returns the
-                        // conversation from DB before it's deleted, creating a flicker.
-                        if (pendingDeletionIds.size > 0 && queryKey === queryKeys.messagingConversations.all) {
-                          return;
-                        }
-                        queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
-                      });
-                    });
+                  // ARK (Onda 1 / 1.2): atualiza a conversa na lista (previa/horario) sem refazer a busca.
+                  const knownOut = patchConversationFromMessage(queryClient, newRecord);
+                  queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.unreadCount() });
+                  if (!knownOut && pendingDeletionIds.size === 0) {
+                    queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all, refetchType: 'active' });
                   }
                   return;
                 }
@@ -317,26 +323,12 @@ export function useRealtimeSync(
                   console.log('[Realtime] 💬 Inbound message injected into cache:', newMessage.id);
                 }
 
-                // Also refresh conversations list for last_message preview + unread count.
-                pendingInvalidationsRef.current.add(queryKeys.messagingConversations.all);
-                pendingInvalidationsRef.current.add(queryKeys.messagingConversations.unreadCount());
-                if (!flushScheduledRef.current) {
-                  flushScheduledRef.current = true;
-                  queueMicrotask(() => {
-                    flushScheduledRef.current = false;
-                    const keysToFlush = Array.from(pendingInvalidationsRef.current);
-                    pendingInvalidationsRef.current.clear();
-                    keysToFlush.forEach((queryKey) => {
-                      // Skip conversations-list invalidation while a deletion is in-progress.
-                      // Same guard as the outbound path — prevents an inbound message arriving
-                      // during the delete window from triggering a refetch that re-shows the
-                      // deleted conversation before the realtime DELETE event lowers the guard.
-                      if (pendingDeletionIds.size > 0 && queryKey === queryKeys.messagingConversations.all) {
-                        return;
-                      }
-                      queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
-                    });
-                  });
+                // ARK (Onda 1 / 1.2): mensagem recebida vira PATCH do item na lista (previa, nao lida,
+                // ordem). So refaz a busca se a conversa nao estiver nas paginas carregadas.
+                const knownIn = patchConversationFromMessage(queryClient, payload.new as Record<string, unknown>);
+                queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.unreadCount() });
+                if (!knownIn && pendingDeletionIds.size === 0) {
+                  queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all, refetchType: 'active' });
                 }
                 return;
               }
@@ -388,13 +380,7 @@ export function useRealtimeSync(
               // not blocked. This is the correct place — earlier removal (e.g. in onSettled) races
               // with DB-trigger UPDATE events that arrive via WebSocket AFTER the HTTP response.
               removePendingDeletion(deletedId);
-              queryClient.setQueriesData(
-                { queryKey: queryKeys.messagingConversations.all },
-                (old: unknown) => {
-                  if (!Array.isArray(old)) return old;
-                  return (old as ConversationView[]).filter((conv) => conv.id !== deletedId);
-                }
-              );
+              updateConversationLists(queryClient, (list) => list.filter((conv) => conv.id !== deletedId));
               queryClient.removeQueries({
                 queryKey: queryKeys.messagingConversations.detail(deletedId),
               });
@@ -421,6 +407,16 @@ export function useRealtimeSync(
               }
               return;
             }
+          }
+
+          // ARK (Onda 1 / 1.2): UPDATE em messaging_conversations (trigger de mensagem nova,
+          // leitura, atribuicao, status) atualiza o item em cache. Antes: refetch da lista
+          // inteira (1,24 MB) a cada mensagem que chegava.
+          if (table === 'messaging_conversations' && payload.eventType === 'UPDATE' && payload.new) {
+            const known = patchConversationFromRow(queryClient, payload.new as Record<string, unknown>);
+            queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.unreadCount() });
+            if (known) return;
+            // Conversa fora das paginas carregadas: segue para a invalidacao generica (debounced).
           }
 
           // Queue query keys for invalidation (lazy loaded)
@@ -524,9 +520,7 @@ export function useRealtimeSync(
               // CRÍTICO: Atualizar APENAS DEALS_VIEW_KEY (única fonte de verdade)
               // O Kanban (useDealsByBoard) agora usa essa mesma query com filtragem client-side
               // NÃO usar setQueriesData com prefix matcher - isso atualiza queries erradas!
-              queryClient.setQueryData<DealView[]>(
-                DEALS_VIEW_KEY,
-                (old) => {
+              setDealsViewCaches(queryClient, (old) => {
                   if (!old || !Array.isArray(old)) return old;
                   
                   // Check if deal already exists (by real ID)
@@ -636,9 +630,7 @@ export function useRealtimeSync(
               // This avoids race condition where invalidation refetches stale data
               // IMPORTANT: Only apply if the incoming status is different from current cache status
               // This prevents Realtime from reverting optimistic updates with stale data
-              queryClient.setQueryData<DealView[]>(
-                DEALS_VIEW_KEY,
-                (old) => {
+              setDealsViewCaches(queryClient, (old) => {
                   if (!old || !Array.isArray(old)) {
                     // #region agent log
                     if (process.env.NODE_ENV !== 'production') {
@@ -940,6 +932,7 @@ export function useRealtimeSync(
       }
 
       isConnectedRef.current = status === 'SUBSCRIBED';
+      setRealtimeChannelConnected(channelName, status === 'SUBSCRIBED');
 
       if (status === 'SUBSCRIBED') {
         console.log(`[Realtime] ✅ Connected to ${tableList.join(', ')}`);
@@ -987,13 +980,14 @@ export function useRealtimeSync(
       const channelToRemove = channelRef.current;
       channelRef.current = null;
       isConnectedRef.current = false;
+      forgetRealtimeChannel(channelName);
       if (channelToRemove) {
         sb.removeChannel(channelToRemove);
       }
     };
     // Only re-run if enabled, tables, or debounceMs change
     // queryClient is stable, onchange is handled via ref
-  }, [enabled, JSON.stringify(tables), debounceMs]);
+  }, [enabled, JSON.stringify(tables), debounceMs, orgId]);
 
   return {
     /** Manually trigger a sync */

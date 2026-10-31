@@ -2,9 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useActivities } from '@/lib/query/hooks/useActivitiesQuery';
+import { useRecentActivities } from '@/lib/query/hooks/useActivitiesQuery';
 import { useLifecycleStages } from '@/lib/query/hooks/useLifecycleStagesQuery';
-import { useContacts } from '@/lib/query/hooks/useContactsQuery';
 import { useBoards } from '@/lib/query/hooks/useBoardsQuery';
 import { useToast } from '@/context/ToastContext';
 import { TrendingUp, TrendingDown, Users, DollarSign, Target, Clock, MoreVertical, AlertTriangle } from 'lucide-react';
@@ -40,9 +39,10 @@ function formatChange(value: number): { text: string; isPositive: boolean } {
  */
 const DashboardPage: React.FC = () => {
   const router = useRouter();
-  const { data: activities = [] } = useActivities();
+  // ARK (Onda 1 / 1.4): feed + alertas usam as 200 atividades mais recentes (antes: 1.000);
+  // contagem por estagio vem da RPC (useDashboardMetrics), nao da lista de contatos.
+  const { data: activities = [] } = useRecentActivities(200);
   const { data: lifecycleStages = [] } = useLifecycleStages();
-  const { data: contacts = [] } = useContacts();
   const { data: boards = [] } = useBoards();
   const { addToast } = useToast();
   const [period, setPeriod] = useState<PeriodFilter>('this_month');
@@ -56,17 +56,6 @@ const DashboardPage: React.FC = () => {
       setSelectedBoardId(defaultB.id);
     }
   }, [boards, selectedBoardId]);
-
-  // Calcular contagem de contatos por estágio de ciclo de vida
-  const stageCounts = React.useMemo(() => {
-    const counts: Record<string, number> = {};
-    contacts.forEach(contact => {
-      if (contact.stage) {
-        counts[contact.stage] = (counts[contact.stage] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [contacts]);
 
 
   const {
@@ -82,9 +71,10 @@ const DashboardPage: React.FC = () => {
     activePercent,
     inactivePercent,
     churnedPercent,
-    activeContacts,
-    inactiveContacts,
-    churnedContacts,
+    activeContactsCount,
+    inactiveContactsCount,
+    churnedContactsCount,
+    contactsByStage: stageCounts,
     riskyCount,
     stagnantDealsCount,
     stagnantDealsValue,
@@ -245,15 +235,15 @@ const DashboardPage: React.FC = () => {
             <div className="flex justify-between mt-2 text-xs text-slate-500">
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full bg-green-500"></div> Ativos (
-                {activeContacts.length})
+                {activeContactsCount})
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full bg-yellow-500"></div> Inativos (
-                {inactiveContacts.length})
+                {inactiveContactsCount})
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full bg-red-500"></div> Churn (
-                {churnedContacts.length})
+                {churnedContactsCount})
               </div>
             </div>
           </div>

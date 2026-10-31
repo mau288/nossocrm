@@ -152,6 +152,30 @@ export const activitiesService = {
   },
 
   /**
+   * ARK (Onda 1 / 1.4): as N atividades mais recentes (feed da Visão Geral).
+   * Antes a página baixava as 1.000 mais recentes para mostrar 15.
+   */
+  async getRecent(limit = 50): Promise<{ data: Activity[] | null; error: Error | null }> {
+    try {
+      const sb = supabase;
+      if (!sb) return { data: null, error: new Error('Supabase não configurado') };
+      const { data, error } = await sb
+        .from('activities')
+        .select(`
+          *,
+          deals:deal_id (title)
+        `)
+        .order('date', { ascending: false })
+        .limit(Math.max(1, Math.min(limit, 500)));
+      if (error) return { data: null, error };
+      const activities = (data || []).map(a => transformActivity(a as DbActivityWithDeal));
+      return { data: sortActivitiesSmart(activities), error: null };
+    } catch (e) {
+      return { data: null, error: e as Error };
+    }
+  },
+
+  /**
    * ARK (Onda 0 / 0.5): atividades de UM negócio, filtradas no banco.
    * Antes, `useActivitiesByDeal` baixava as 1.000 atividades mais recentes e filtrava aqui.
    *
