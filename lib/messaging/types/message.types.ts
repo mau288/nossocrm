@@ -196,6 +196,8 @@ export interface ConversationView extends MessagingConversation {
   contactEmail?: string;
   contactPhone?: string;
   contactAiPaused?: boolean;
+  /** ARK (Onda 2): 'conversa' = ainda nao e contato (so sustenta a conversa); 'contato' = contato de verdade. */
+  contactLifecycle?: 'conversa' | 'contato';
   /** Assigned user info */
   assignedUserName?: string;
   assignedUserAvatar?: string;

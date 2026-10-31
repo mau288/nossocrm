@@ -20,6 +20,7 @@ import {
   Bot,
   KanbanSquare,
   Send,
+  UserPlus,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -39,6 +40,9 @@ interface ContactPanelProps {
   conversation: ConversationView | null | undefined;
   isLoading?: boolean;
   onLinkContact?: () => void;
+  /** ARK (Onda 2): promove o registro 'conversa' a contato de verdade. */
+  onPromoteContact?: () => void;
+  isPromoting?: boolean;
   onViewContact?: (contactId: string) => void;
   onViewDeals?: (contactId: string) => void;
   /** Abre o modal "Enviar pro Funil" — criação MANUAL de negócio a partir da conversa. */
@@ -105,6 +109,8 @@ export const ContactPanel = memo(function ContactPanel({
   conversation,
   isLoading,
   onLinkContact,
+  onPromoteContact,
+  isPromoting,
   onViewContact,
   onViewDeals,
   onSendToFunnel,
@@ -172,6 +178,8 @@ export const ContactPanel = memo(function ContactPanel({
 
   const displayName = contactName || externalContactName || 'Contato desconhecido';
   const hasLinkedContact = !!contactId;
+  // ARK (Onda 2): registro que so sustenta a conversa — ainda nao e contato.
+  const isOnlyConversation = hasLinkedContact && conversation.contactLifecycle === 'conversa';
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
@@ -227,6 +235,14 @@ export const ContactPanel = memo(function ContactPanel({
                 </span>
               )}
               <WindowExpiryBadge windowExpiresAt={windowExpiresAt} variant="inline" />
+              {isOnlyConversation && (
+                <span
+                  className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400"
+                  title="Esta conversa ainda nao virou contato. Vira quando a pessoa responder, ganhar um negocio ou voce clicar em Enviar para contatos."
+                >
+                  Ainda nao e contato
+                </span>
+              )}
               {hasDuplicate && (
                 <button
                   type="button"
@@ -240,6 +256,22 @@ export const ContactPanel = memo(function ContactPanel({
             </div>
           </div>
         </div>
+
+        {/* ARK (Onda 2): promover a conversa a contato */}
+        {isOnlyConversation && onPromoteContact && (
+          <button
+            type="button"
+            onClick={onPromoteContact}
+            disabled={isPromoting}
+            className={cn(
+              'w-full mt-4 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium',
+              'bg-primary-600 text-white hover:bg-primary-500 disabled:opacity-50 transition-colors'
+            )}
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            {isPromoting ? 'Enviando...' : 'Enviar para contatos'}
+          </button>
+        )}
 
         {/* Quick actions */}
         <div className="flex items-center gap-2 mt-4">
