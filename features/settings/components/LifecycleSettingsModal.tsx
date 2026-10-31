@@ -37,7 +37,9 @@ export const LifecycleSettingsModal: React.FC<LifecycleSettingsModalProps> = ({ 
     const updateStageMutation = useUpdateLifecycleStage();
     const deleteStageMutation = useDeleteLifecycleStage();
     const reorderStagesMutation = useReorderLifecycleStages();
-    const { data: contacts = [] } = useContacts();
+    // ARK (Onda 1 / 1.3b): so busca os contatos com o modal aberto. Fechado, este hook baixava
+    // os 1.000 contatos (600 KB) em todo Kanban via CreateBoardModal -> LifecycleSettingsModal.
+    const { data: contacts = [] } = useContacts(undefined, { enabled: isOpen });
     const [newStageName, setNewStageName] = useState('');
     const [isAdding, setIsAdding] = useState(false);
 
