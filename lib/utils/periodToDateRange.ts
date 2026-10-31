@@ -7,7 +7,7 @@
  * @module lib/utils/periodToDateRange
  */
 
-import type { PeriodFilter } from '@/features/dashboard/hooks/useDashboardMetrics';
+import { parseCustomPeriod, type PeriodFilter } from '@/features/dashboard/hooks/useDashboardMetrics';
 
 export interface DateRangeISO {
   start: string;
@@ -22,6 +22,17 @@ export interface DateRangeISO {
 export function periodToDateRange(period: PeriodFilter): DateRangeISO {
   const now = new Date();
   const end = now.toISOString();
+
+  // ARK: periodo personalizado (dia local)
+  const custom = parseCustomPeriod(period);
+  if (custom) {
+    const [sy, sm, sd] = custom.start.split('-').map(Number);
+    const [ey, em, ed] = custom.end.split('-').map(Number);
+    return {
+      start: new Date(sy, sm - 1, sd).toISOString(),
+      end: new Date(ey, em - 1, ed, 23, 59, 59, 999).toISOString(),
+    };
+  }
 
   switch (period) {
     case 'today': {

@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { TrendingUp, Clock, Target, DollarSign, Trophy, Users, Download, Settings, BarChart3, Gauge } from 'lucide-react';
-import { useDashboardMetrics, PeriodFilter, COMPARISON_LABELS } from '../dashboard/hooks/useDashboardMetrics';
+import { useDashboardMetrics, PeriodFilter, comparisonLabel } from '../dashboard/hooks/useDashboardMetrics';
 import { PeriodFilterSelect } from '@/components/filters/PeriodFilterSelect';
 import { LazyRevenueTrendChart, ChartWrapper } from '@/components/charts';
 import { generateReportPDF } from './utils/generateReportPDF';
@@ -323,7 +323,7 @@ const ReportsPage: React.FC = () => {
           </div>
           <p className="text-2xl font-bold text-slate-900 dark:text-white">{formatCurrency(pipelineValue)}</p>
           <p className={`text-xs ${changes.pipeline >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-            {changes.pipeline >= 0 ? '+' : ''}{changes.pipeline.toFixed(1)}% {COMPARISON_LABELS[period]}
+            {changes.pipeline >= 0 ? '+' : ''}{changes.pipeline.toFixed(1)}% {comparisonLabel(period)}
           </p>
         </div>
 
@@ -337,7 +337,7 @@ const ReportsPage: React.FC = () => {
           </div>
           <p className="text-2xl font-bold text-slate-900 dark:text-white">{actualWinRate.toFixed(1)}%</p>
           <p className={`text-xs ${changes.winRate >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-            {changes.winRate >= 0 ? '+' : ''}{changes.winRate.toFixed(1)}% {COMPARISON_LABELS[period]}
+            {changes.winRate >= 0 ? '+' : ''}{changes.winRate.toFixed(1)}% {comparisonLabel(period)}
           </p>
         </div>
 

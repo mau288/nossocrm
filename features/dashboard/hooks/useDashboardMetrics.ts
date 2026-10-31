@@ -3,7 +3,7 @@ import { useDeals } from '@/lib/query/hooks/useDealsQuery';
 import { useDashboardContactStats } from '@/lib/query/hooks/useDashboardContactStatsQuery';
 import { useBoards, useDefaultBoard } from '@/lib/query/hooks/useBoardsQuery';
 
-export type PeriodFilter =
+export type PeriodPreset =
   | 'all'
   | 'today'
   | 'yesterday'
@@ -16,7 +16,51 @@ export type PeriodFilter =
   | 'this_year'
   | 'last_year';
 
-export const PERIOD_LABELS: Record<PeriodFilter, string> = {
+/**
+ * ARK: periodo personalizado = `custom:AAAA-MM-DD:AAAA-MM-DD` (inicio e fim, dia local).
+ * Viaja como string para caber nas queryKeys e nas RPCs sem mudar assinatura.
+ */
+export type PeriodFilter = PeriodPreset | `custom:${string}`;
+
+export const CUSTOM_PERIOD_PREFIX = 'custom:';
+
+export function isCustomPeriod(period: string): period is `custom:${string}` {
+  return period.startsWith(CUSTOM_PERIOD_PREFIX);
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Datas (AAAA-MM-DD) de um periodo personalizado; null se nao for custom ou estiver incompleto. */
+export function parseCustomPeriod(period: string): { start: string; end: string } | null {
+  if (!isCustomPeriod(period)) return null;
+  const [, start, end] = period.split(':');
+  if (!ISO_DAY.test(start || '') || !ISO_DAY.test(end || '')) return null;
+  return start <= end ? { start, end } : { start: end, end: start };
+}
+
+export function makeCustomPeriod(start: string, end: string): PeriodFilter {
+  return `${CUSTOM_PERIOD_PREFIX}${start}:${end}`;
+}
+
+const dataBR = (iso: string) => {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+};
+
+/** Rotulo do periodo, inclusive personalizado ("01/10/2026 → 15/10/2026"). */
+export function periodLabel(period: PeriodFilter): string {
+  const c = parseCustomPeriod(period);
+  if (c) return `${dataBR(c.start)} → ${dataBR(c.end)}`;
+  return PERIOD_LABELS[period as PeriodPreset] ?? String(period);
+}
+
+/** Rotulo da comparacao ("vs período anterior" no personalizado). */
+export function comparisonLabel(period: PeriodFilter): string {
+  if (isCustomPeriod(period)) return 'vs período anterior';
+  return COMPARISON_LABELS[period as PeriodPreset] ?? '';
+}
+
+export const PERIOD_LABELS: Record<PeriodPreset, string> = {
   all: 'Todo o Período',
   today: 'Hoje',
   yesterday: 'Ontem',
@@ -33,7 +77,7 @@ export const PERIOD_LABELS: Record<PeriodFilter, string> = {
 /**
  * Labels que explicam com o que estamos comparando
  */
-export const COMPARISON_LABELS: Record<PeriodFilter, string> = {
+export const COMPARISON_LABELS: Record<PeriodPreset, string> = {
   all: 'total',
   today: 'vs ontem',
   yesterday: 'vs anteontem',
@@ -59,6 +103,14 @@ export function getDateRange(period: PeriodFilter): DateRange {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfToday = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+  // ARK: periodo personalizado (dia local, inicio 00:00 -> fim 23:59:59.999)
+  const custom = parseCustomPeriod(period);
+  if (custom) {
+    const [sy, sm, sd] = custom.start.split('-').map(Number);
+    const [ey, em, ed] = custom.end.split('-').map(Number);
+    return { start: new Date(sy, sm - 1, sd), end: new Date(ey, em - 1, ed, 23, 59, 59, 999) };
+  }
 
   switch (period) {
     case 'all':
