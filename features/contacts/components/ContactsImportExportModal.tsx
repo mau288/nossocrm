@@ -76,6 +76,10 @@ export function ContactsImportExportModal(props: {
 
   // Export state
   const [isExporting, setIsExporting] = useState(false);
+  // ARK Onda 3 (3.5): formato, tags e origem para trafego/lancamento
+  const [exportFormat, setExportFormat] = useState<'crm' | 'meta'>('crm');
+  const [exportTags, setExportTags] = useState('');
+  const [exportOrigem, setExportOrigem] = useState('');
 
   const templateCsv = useMemo(() => {
     const d: CsvDelimiter = delimiter === 'auto' ? ';' : delimiter;
@@ -115,6 +119,9 @@ export function ContactsImportExportModal(props: {
     if (exportParams.sortBy) sp.set('sortBy', exportParams.sortBy);
     if (exportParams.sortOrder) sp.set('sortOrder', exportParams.sortOrder);
     if (delimiter !== 'auto') sp.set('delimiter', delimiter);
+    if (exportFormat === 'meta') sp.set('format', 'meta');
+    if (exportTags.trim()) sp.set('tags', exportTags.trim());
+    if (exportOrigem.trim()) sp.set('origem', exportOrigem.trim());
     return `/api/contacts/export?${sp.toString()}`;
   };
 
@@ -240,8 +247,61 @@ export function ContactsImportExportModal(props: {
             </div>
           </div>
 
+          {/* ARK Onda 3: formato + filtros de tag/origem (somam-se aos filtros da tela) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Formato</span>
+              <select
+                value={exportFormat}
+                onChange={e => setExportFormat(e.target.value as 'crm' | 'meta')}
+                className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm"
+              >
+                <option value="crm">Planilha completa (CRM)</option>
+                <option value="meta">Público do Meta Ads (Custom Audience)</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Origem</span>
+              <input
+                type="text"
+                list="export-origem-opcoes"
+                value={exportOrigem}
+                onChange={e => setExportOrigem(e.target.value)}
+                placeholder="todas (ex.: instagram, whatsapp)"
+                className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm"
+              />
+              <datalist id="export-origem-opcoes">
+                <option value="instagram" />
+                <option value="whatsapp" />
+                <option value="tiktok" />
+                <option value="importacao" />
+                <option value="lancamento-pago" />
+              </datalist>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Tags (todas, separadas por vírgula)</span>
+              <input
+                type="text"
+                value={exportTags}
+                onChange={e => setExportTags(e.target.value)}
+                placeholder="ex.: edicao:black26, funil:comunidade"
+                className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm"
+              />
+            </label>
+          </div>
+
           <div className="text-xs text-slate-600 dark:text-slate-300">
-            <b>Campos exportados:</b> name, email, phone, role, company, status, stage, notes, created_at, updated_at.
+            {exportFormat === 'meta' ? (
+              <>
+                <b>Campos exportados:</b> email, phone (só dígitos), fn, ln, country — no layout que o Meta aceita para subir público. Sem acento/BOM.
+              </>
+            ) : (
+              <>
+                <b>Campos exportados:</b> name, email, phone, instagram, tiktok, origem, campanha, tags, role, company, status, stage,
+                negocio_status, negocio_funil, negocio_valor, negocio_fechado_em, ja_comprou, notes, created_at, updated_at.
+              </>
+            )}
+            <span className="block mt-1 text-slate-400">Período, pesquisa, estágio e status seguem os filtros da tela de Contatos.</span>
           </div>
 
           <button

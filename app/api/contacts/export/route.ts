@@ -7,6 +7,8 @@ export const maxDuration = 120;
 
 type SortBy = 'name' | 'created_at' | 'updated_at' | 'stage';
 type SortOrder = 'asc' | 'desc';
+/** ARK Onda 3: 'crm' = planilha completa; 'meta' = Custom Audience do Meta Ads. */
+type ExportFormat = 'crm' | 'meta';
 
 function getParam(searchParams: URLSearchParams, key: string): string | undefined {
   const v = searchParams.get(key);
@@ -22,8 +24,49 @@ function parseSortOrder(v: string | undefined): SortOrder {
   return v === 'asc' ? 'asc' : 'desc';
 }
 
+function parseFormat(v: string | undefined): ExportFormat {
+  return v === 'meta' ? 'meta' : 'crm';
+}
+
+/** Tags vindas da URL: "a,b , c" -> ['a','b','c'] (sem vazios, sem caracteres do PostgREST). */
+function parseTags(v: string | undefined): string[] {
+  if (!v) return [];
+  return v
+    .split(',')
+    .map(t => sanitizePostgrestValue(t.trim()))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+const CAMPANHA_PREFIXES = ['funil:', 'edicao:', 'campanha:', 'lista:'];
+
+type DealLite = {
+  contact_id: string;
+  is_won: boolean | null;
+  is_lost: boolean | null;
+  value: number | string | null;
+  closed_at: string | null;
+  created_at: string;
+  board: { name: string } | { name: string }[] | null;
+};
+
+type DealResumo = {
+  status: 'ganho' | 'perdido' | 'aberto';
+  board: string;
+  value: number;
+  closedAt: string;
+  jaComprou: boolean;
+};
+
 /**
  * Handler HTTP `GET` deste endpoint (Next.js Route Handler).
+ *
+ * ARK Onda 3 (3.5): exportacao para trafego e lancamento.
+ * - Colunas novas: instagram, tiktok, origem (source), campanha (tags funil:/edicao:/campanha:/lista:),
+ *   tags, negocio mais recente (status/funil/valor/fechado em) e ja_comprou.
+ * - Filtros novos: `tags` (contem TODAS as tags informadas), `origem` (tag origem:<canal>).
+ * - `format=meta`: CSV no layout do Custom Audience do Meta (email, phone, fn, ln, country),
+ *   sem BOM, telefone so digitos (E.164 sem +).
  *
  * @param {Request} req - Objeto da requisição.
  * @returns {Promise<NextResponse<unknown>>} Retorna um valor do tipo `Promise<NextResponse<unknown>>`.
@@ -41,6 +84,10 @@ export async function GET(req: Request) {
     const delimiter = (getParam(sp, 'delimiter') as CsvDelimiter | undefined) || undefined;
     const sortBy = parseSortBy(getParam(sp, 'sortBy'));
     const sortOrder = parseSortOrder(getParam(sp, 'sortOrder'));
+    const format = parseFormat(getParam(sp, 'format'));
+    const tags = parseTags(getParam(sp, 'tags'));
+    const origemParam = getParam(sp, 'origem');
+    const origem = origemParam ? sanitizePostgrestValue(origemParam).toLowerCase() : undefined;
 
     const supabase = await createClient();
 
@@ -66,8 +113,7 @@ export async function GET(req: Request) {
     let page = 0;
     let allContacts: Array<any> = [];
 
-    // We'll fetch in chunks. For export, we don't rely on count to avoid expensive exact counts.
-    // Stop when a chunk returns less than chunkSize.
+    // Fetch in chunks; stop when a chunk returns less than chunkSize.
     while (true) {
       const from = page * chunkSize;
       const to = from + chunkSize - 1;
@@ -75,7 +121,7 @@ export async function GET(req: Request) {
       let q = supabase
         .from('contacts')
         .select(
-          'id,name,email,phone,role,notes,status,stage,created_at,updated_at,client_company_id,last_purchase_date'
+          'id,name,email,phone,role,notes,status,stage,source,tags,instagram_username,tiktok_username,created_at,updated_at,client_company_id,last_purchase_date'
         )
         .eq('organization_id', orgId)
         .is('deleted_at', null)
@@ -99,6 +145,9 @@ export async function GET(req: Request) {
       }
       if (dateStart) q = q.gte('created_at', dateStart);
       if (dateEnd) q = q.lte('created_at', dateEnd);
+      // ARK Onda 3: filtros de tag e origem (tags @> [...])
+      if (tags.length) q = q.contains('tags', tags);
+      if (origem) q = q.contains('tags', [`origem:${origem}`]);
 
       const { data, error } = await q
         .order(sortBy, { ascending: sortOrder === 'asc' })
@@ -114,6 +163,40 @@ export async function GET(req: Request) {
       page += 1;
     }
 
+    const today = new Date().toISOString().slice(0, 10);
+
+    // -------------------------------------------------------------------------
+    // Formato Meta Custom Audience: email, phone, fn, ln, country
+    // -------------------------------------------------------------------------
+    if (format === 'meta') {
+      const header = ['email', 'phone', 'fn', 'ln', 'country'];
+      const rows: string[][] = [];
+      for (const c of allContacts) {
+        const email = (c.email || '').trim().toLowerCase();
+        const phone = String(c.phone || '').replace(/\D/g, '');
+        if (!email && !phone) continue;
+        const partes = String(c.name || '').trim().split(/\s+/).filter(Boolean);
+        // nome que e so numero/@ nao ajuda o match: deixa vazio
+        const temNome = partes.length > 0 && !/^[+\d@]/.test(partes[0]);
+        const fn = temNome ? partes[0] : '';
+        const ln = temNome ? partes.slice(1).join(' ') : '';
+        rows.push([email, phone, fn, ln, 'BR']);
+      }
+      const csv = stringifyCsv([header, ...rows], ',');
+      return new NextResponse(csv, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="publico-meta-${today}.csv"`,
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // Formato CRM completo
+    // -------------------------------------------------------------------------
+
     // Company name mapping (optional)
     const companyIds = Array.from(
       new Set(allContacts.map(c => c.client_company_id).filter(Boolean))
@@ -121,7 +204,6 @@ export async function GET(req: Request) {
 
     const companyNameById = new Map<string, string>();
     if (companyIds.length) {
-      // Fetch companies in chunks to avoid query limits
       const idChunkSize = 500;
       for (let i = 0; i < companyIds.length; i += idChunkSize) {
         const ids = companyIds.slice(i, i + idChunkSize);
@@ -141,36 +223,93 @@ export async function GET(req: Request) {
       }
     }
 
+    // ARK Onda 3: negocio mais recente + "ja comprou" (algum ganho) por contato
+    const dealByContact = new Map<string, DealResumo>();
+    const contactIds = allContacts.map(c => c.id as string);
+    for (let i = 0; i < contactIds.length; i += 500) {
+      const ids = contactIds.slice(i, i + 500);
+      const { data: deals, error: dealsError } = await supabase
+        .from('deals')
+        .select('contact_id,is_won,is_lost,value,closed_at,created_at,board:boards!board_id(name)')
+        .in('contact_id', ids)
+        .eq('organization_id', orgId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+
+      if (dealsError) {
+        return NextResponse.json({ error: dealsError.message }, { status: 400 });
+      }
+      for (const d of (deals || []) as unknown as DealLite[]) {
+        const atual = dealByContact.get(d.contact_id);
+        const boardName = Array.isArray(d.board) ? d.board[0]?.name : d.board?.name;
+        if (!atual) {
+          dealByContact.set(d.contact_id, {
+            status: d.is_won ? 'ganho' : d.is_lost ? 'perdido' : 'aberto',
+            board: boardName || '',
+            value: Number(d.value ?? 0),
+            closedAt: d.closed_at || '',
+            jaComprou: !!d.is_won,
+          });
+        } else if (d.is_won) {
+          atual.jaComprou = true;
+        }
+      }
+    }
+
     const header = [
       'name',
       'email',
       'phone',
+      'instagram',
+      'tiktok',
+      'origem',
+      'campanha',
+      'tags',
       'role',
       'company',
       'status',
       'stage',
+      'negocio_status',
+      'negocio_funil',
+      'negocio_valor',
+      'negocio_fechado_em',
+      'ja_comprou',
       'notes',
       'created_at',
       'updated_at',
     ];
 
-    const dataRows = allContacts.map(c => [
-      c.name || '',
-      c.email || '',
-      c.phone || '',
-      c.role || '',
-      companyNameById.get(c.client_company_id) || '',
-      c.status || '',
-      c.stage || '',
-      c.notes || '',
-      c.created_at || '',
-      c.updated_at || '',
-    ]);
+    const dataRows = allContacts.map(c => {
+      const ctags: string[] = Array.isArray(c.tags) ? c.tags : [];
+      const origemTag = ctags.find(t => t.startsWith('origem:'));
+      const campanha = ctags.filter(t => CAMPANHA_PREFIXES.some(p => t.startsWith(p)));
+      const deal = dealByContact.get(c.id);
+      return [
+        c.name || '',
+        c.email || '',
+        c.phone || '',
+        c.instagram_username ? `@${c.instagram_username}` : '',
+        c.tiktok_username ? `@${c.tiktok_username}` : '',
+        c.source || (origemTag ? origemTag.slice(7) : ''),
+        campanha.join('|'),
+        ctags.join('|'),
+        c.role || '',
+        companyNameById.get(c.client_company_id) || '',
+        c.status || '',
+        c.stage || '',
+        deal?.status || '',
+        deal?.board || '',
+        deal ? String(deal.value) : '',
+        deal?.closedAt || '',
+        deal?.jaComprou ? 'sim' : 'nao',
+        c.notes || '',
+        c.created_at || '',
+        c.updated_at || '',
+      ];
+    });
 
     const d: CsvDelimiter = delimiter === ';' || delimiter === '\t' || delimiter === ',' ? delimiter : ',';
     const csv = withUtf8Bom(stringifyCsv([header, ...dataRows], d));
-
-    const today = new Date().toISOString().slice(0, 10);
     const filename = `contatos-${today}.csv`;
 
     return new NextResponse(csv, {
@@ -188,4 +327,3 @@ export async function GET(req: Request) {
     );
   }
 }
-
