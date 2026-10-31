@@ -14,6 +14,7 @@ import {
   useInfiniteQuery,
 } from '@tanstack/react-query';
 import { queryKeys } from '../index';
+import { isRealtimeConnected } from '@/lib/realtime/status';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import type {
@@ -95,9 +96,11 @@ export function useMessagesInfinite(conversationId: string | undefined) {
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: !authLoading && !!user && !!conversationId,
     staleTime: 30 * 1000,
-    // Rede de seguranca do realtime (ver useConversations): a thread aberta se atualiza sozinha
-    // mesmo se o WebSocket cair. So as paginas ja carregadas sao refeitas.
-    refetchInterval: 12 * 1000,
+    // ARK (Onda 1 / 1.5): o polling refaz TODAS as paginas carregadas; limitamos a 4 paginas
+    // em memoria (200 mensagens — rolar mais para cima recarrega sob demanda) e, com o
+    // realtime de pe, o acerto e a cada 30 s; se o WebSocket cair, volta para 12 s.
+    maxPages: 4,
+    refetchInterval: () => (isRealtimeConnected() ? 30 * 1000 : 12 * 1000),
     refetchOnWindowFocus: true,
   });
 }
