@@ -815,6 +815,14 @@ async function handleMessagesUpsert(
         .from("messaging_conversations")
         .update({ external_contact_name: pushName })
         .eq("id", conversationId);
+      // ARK (Onda 2 / 2.2): o contato tambem herda o nome real (so quando ainda e o telefone).
+      if (contactId) {
+        await supabase
+          .from("contacts")
+          .update({ name: pushName })
+          .eq("id", contactId)
+          .eq("name", phone);
+      }
     }
   } else {
     // Find or create contact
@@ -845,6 +853,9 @@ async function handleMessagesUpsert(
           name: contactName,
           phone: phone,
           source: "whatsapp",
+          // ARK (Onda 2): registro criado por mensagem nasce como 'conversa'; vira 'contato'
+          // quando a pessoa responde a uma abordagem, ganha negocio ou alguem promove (promote_contact).
+          lifecycle: "conversa",
         })
         .select("id")
         .single();

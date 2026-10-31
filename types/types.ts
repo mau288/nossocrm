@@ -180,7 +180,15 @@ export interface Contact {
    * funis pelos quais ele passou e de filtro nas listagens.
    */
   tags?: string[];
+
+  /**
+   * ARK (Onda 2): 'conversa' = registro que só sustenta uma conversa em Mensagens
+   * (não aparece em Contatos); 'contato' = contato de verdade. Promoção via RPC promote_contact.
+   */
+  lifecycle?: ContactLifecycle;
 }
+
+export type ContactLifecycle = 'conversa' | 'contato';
 
 // ITEM 3: Produtos e Serviços
 export interface Product {

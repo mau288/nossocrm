@@ -241,11 +241,34 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
 
     if (error) throw error;
 
+    // ARK (Onda 2): vincular a um contato e uma acao explicita — se o registro ainda era
+    // 'conversa', vira contato de verdade.
+    await supabase.rpc('promote_contact', { p_contact_id: contactId, p_reason: 'vinculo' });
+
     // Invalidate queries to refresh data
     queryClient.invalidateQueries({
       queryKey: queryKeys.messagingConversations.all,
     });
+    queryClient.invalidateQueries({ queryKey: queryKeys.contacts.all });
   }, [selectedConversationId, queryClient]);
+
+  // ARK (Onda 2): "Enviar para contatos" — promove o registro 'conversa' a contato.
+  const [isPromoting, setIsPromoting] = useState(false);
+  const handlePromoteContact = useCallback(async () => {
+    const contactId = selectedConversation?.contactId;
+    if (!contactId) return;
+    setIsPromoting(true);
+    try {
+      const { error } = await supabase.rpc('promote_contact', { p_contact_id: contactId, p_reason: 'manual' });
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts.all });
+    } catch (err) {
+      console.error('[Messaging] promote_contact:', err);
+    } finally {
+      setIsPromoting(false);
+    }
+  }, [selectedConversation?.contactId, queryClient]);
 
   // Create contact and link
   const handleCreateContact = useCallback(async (params: { name: string; phone?: string }) => {
@@ -437,6 +460,8 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
           conversation={selectedConversation}
           isLoading={isConversationLoading && !!selectedConversationId}
           onLinkContact={() => setIsLinkModalOpen(true)}
+          onPromoteContact={handlePromoteContact}
+          isPromoting={isPromoting}
           onViewContact={handleViewContact}
           onViewDeals={handleViewDeals}
           onSendToFunnel={() => setIsFunnelModalOpen(true)}

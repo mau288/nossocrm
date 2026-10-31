@@ -66,7 +66,8 @@ export function useMessagingConversations(filters?: ConversationFilters) {
             name,
             email,
             phone,
-            ai_paused
+            ai_paused,
+            lifecycle
           ),
           assigned_user:profiles!assigned_user_id (
             id,
@@ -115,7 +116,7 @@ export function useMessagingConversations(filters?: ConversationFilters) {
       return (data || []).map((row) => {
         const base = transformConversation(row);
         const channel = row.channel as { id?: string; channel_type?: string; name?: string; provider?: string } | null;
-        const contact = row.contact as { id?: string; name?: string; email?: string; phone?: string; ai_paused?: boolean } | null;
+        const contact = row.contact as { id?: string; name?: string; email?: string; phone?: string; ai_paused?: boolean; lifecycle?: string | null } | null;
         const assignedUser = row.assigned_user as { id?: string; name?: string; avatar?: string } | null;
 
         return {
@@ -127,6 +128,7 @@ export function useMessagingConversations(filters?: ConversationFilters) {
           contactEmail: contact?.email,
           contactPhone: contact?.phone,
           contactAiPaused: contact?.ai_paused ?? false,
+          contactLifecycle: contact?.lifecycle === 'conversa' ? 'conversa' : (contact ? 'contato' : undefined),
           assignedUserName: assignedUser?.name,
           assignedUserAvatar: assignedUser?.avatar,
           isWindowExpired: isWindowExpired(base, channel?.provider),
@@ -222,7 +224,8 @@ export function useMessagingConversation(conversationId: string | undefined) {
             email,
             phone,
             avatar,
-            ai_paused
+            ai_paused,
+            lifecycle
           ),
           assigned_user:profiles!assigned_user_id (
             id,
@@ -240,7 +243,7 @@ export function useMessagingConversation(conversationId: string | undefined) {
 
       const base = transformConversation(data);
       const channel = data.channel as { id?: string; channel_type?: string; name?: string; provider?: string } | null;
-      const contact = data.contact as { id?: string; name?: string; email?: string; phone?: string; ai_paused?: boolean } | null;
+      const contact = data.contact as { id?: string; name?: string; email?: string; phone?: string; ai_paused?: boolean; lifecycle?: string | null } | null;
       const assignedUser = data.assigned_user as { id?: string; name?: string; avatar?: string } | null;
 
       return {
@@ -252,6 +255,7 @@ export function useMessagingConversation(conversationId: string | undefined) {
         contactEmail: contact?.email,
         contactPhone: contact?.phone,
         contactAiPaused: contact?.ai_paused ?? false,
+        contactLifecycle: contact?.lifecycle === 'conversa' ? 'conversa' : (contact ? 'contato' : undefined),
         assignedUserName: assignedUser?.name,
         assignedUserAvatar: assignedUser?.avatar,
         isWindowExpired: isWindowExpired(base, channel?.provider),

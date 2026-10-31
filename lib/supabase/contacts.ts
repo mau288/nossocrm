@@ -83,6 +83,8 @@ export interface DbContact {
   ai_paused: boolean;
   /** Tags acumulativas do lead (rastro de funis/processos). */
   tags: string[] | null;
+  /** ARK (Onda 2): 'conversa' | 'contato'. */
+  lifecycle?: string | null;
 }
 
 /**
@@ -137,6 +139,7 @@ const transformContact = (db: DbContact): Contact => ({
   updatedAt: db.updated_at,
   aiPaused: db.ai_paused ?? false,
   tags: db.tags ?? [],
+  lifecycle: (db.lifecycle === 'conversa' ? 'conversa' : 'contato'),
 });
 
 /**
@@ -321,10 +324,12 @@ export const contactsService = {
       }
       // Safety limit: cap at 1000 for non-paginated access.
       // For full datasets, use getAllPaginated() with cursor pagination.
+      // ARK (Onda 2): so contatos de verdade (lifecycle = 'contato').
       const { data, error } = await supabase
         .from('contacts')
         .select('*')
         .is('deleted_at', null)
+        .eq('lifecycle', 'contato')
         .order('created_at', { ascending: false })
         .limit(1000);
 
@@ -368,10 +373,12 @@ export const contactsService = {
 
       // Build query with count (exclude soft-deleted/merged contacts)
       // ARK (Onda 1 / 1.6): 'estimated' = exato ate max_rows (1.000), estimativa do planner acima.
+      // ARK (Onda 2): so contatos de verdade (lifecycle = 'contato').
       let query = supabase
         .from('contacts')
         .select('*', { count: 'estimated' })
-        .is('deleted_at', null);
+        .is('deleted_at', null)
+        .eq('lifecycle', 'contato');
       if (options?.signal) query = query.abortSignal(options.signal);
 
       // Apply filters

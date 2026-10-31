@@ -733,6 +733,9 @@ async function ensureConversation(
       name: contactName,
       source: channel.channel_type,
       ...(params.avatar ? { avatar: params.avatar } : {}),
+      // ARK (Onda 2): DM automatica/abordagem sem resposta nao vira contato (lifecycle 'conversa');
+      // a promocao acontece por trigger (resposta/negocio) ou pelo botao em Mensagens.
+      lifecycle: "conversa",
     })
     .select("id")
     .single();

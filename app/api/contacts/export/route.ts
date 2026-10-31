@@ -78,7 +78,8 @@ export async function GET(req: Request) {
           'id,name,email,phone,role,notes,status,stage,created_at,updated_at,client_company_id,last_purchase_date'
         )
         .eq('organization_id', orgId)
-        .is('deleted_at', null);
+        .is('deleted_at', null)
+        .eq('lifecycle', 'contato'); // ARK (Onda 2)
 
       if (search) {
         const safeSearch = sanitizePostgrestValue(search);
