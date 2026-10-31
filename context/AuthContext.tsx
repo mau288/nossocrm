@@ -27,7 +27,7 @@
  * ```
  */
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { queryClient } from '../lib/query';
@@ -117,6 +117,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [profile, setProfile] = useState<Profile | null>(null);
     const [loading, setLoading] = useState(true);
     const [isInitialized, setIsInitialized] = useState<boolean | null>(null);
+    // ARK (Onda 0 / 0.9): id do usuario cujo perfil ja foi (ou esta sendo) carregado.
+    // onAuthStateChange dispara INITIAL_SESSION, SIGNED_IN e TOKEN_REFRESHED para o MESMO
+    // usuario — antes cada um refazia o SELECT em profiles (2x no boot, +1 a cada refresh).
+    const profileUserIdRef = useRef<string | null>(null);
 
     // Supabase client pode ser null quando envs não estão configuradas.
     // O app real exige Supabase configurado, mas este guard evita falha no build.
@@ -153,6 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             if (error) {
                 console.error('Error fetching profile:', error);
+                profileUserIdRef.current = null; // deixa o proximo evento de auth tentar de novo
             } else if (data === null) {
                 console.warn('Profile not found for user:', userId);
                 setProfile(null);
@@ -166,9 +171,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const refreshProfile = useCallback(async () => {
         if (user?.id) {
+            profileUserIdRef.current = user.id;
             await fetchProfile(user.id);
         }
     }, [user?.id]);
+
+    /** Carrega o perfil uma vez por usuario; troca de usuario recarrega. */
+    const ensureProfile = (userId: string) => {
+        if (profileUserIdRef.current === userId) return;
+        profileUserIdRef.current = userId;
+        void fetchProfile(userId);
+    };
 
     useEffect(() => {
         if (!sb) {
@@ -181,28 +194,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
         }
 
-        checkInitialization();
-
-        sb.auth.getUser().then(({ data: { user }, error }) => {
-            if (error) {
-                console.error('Error getting user:', error);
-                setLoading(false);
-                return;
-            }
-            setUser(user);
-            if (user) {
-                fetchProfile(user.id);
-            } else {
-                setLoading(false);
-            }
-        });
-
+        // ARK (Onda 0 / 0.9): antes o boot fazia 3 idas ao servidor antes de qualquer tela
+        // (RPC is_instance_initialized + auth.getUser + profiles) e o INITIAL_SESSION do
+        // onAuthStateChange repetia o SELECT em profiles. Agora:
+        //  - a RPC so roda quando alguem pede (checkInitialization, usada pelo /setup);
+        //    o proxy do servidor ja garante o redirect para /setup quando preciso;
+        //  - a sessao vem do storage local via INITIAL_SESSION (sem rede; o getUser era
+        //    redundante — RLS e os route handlers validam o token de verdade);
+        //  - profiles e lido UMA vez por usuario.
         const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
             setSession(session);
             setUser(session?.user ?? null);
             if (session?.user) {
-                fetchProfile(session.user.id);
+                ensureProfile(session.user.id);
             } else {
+                profileUserIdRef.current = null;
                 setProfile(null);
                 setLoading(false);
             }
@@ -215,6 +221,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (sb) await sb.auth.signOut();
         // Clear TanStack Query cache to prevent data leakage between sessions/tenants
         queryClient.clear();
+        profileUserIdRef.current = null;
         setProfile(null);
         setUser(null);
         setSession(null);

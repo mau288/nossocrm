@@ -534,7 +534,7 @@ export const useInboxController = () => {
       tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
 
       // Cliente em risco (sem interação, criado há > 30d)
-      const [seedContact] = generateFakeContacts(1);
+      const [seedContact] = await generateFakeContacts(1);
       const createdContact = await createContactMutation.mutateAsync({
         name: seedContact.name,
         email: seedContact.email,
@@ -554,7 +554,7 @@ export const useInboxController = () => {
       const firstStage = activeBoard.stages[0];
 
       // Deal ganho há > 30d (Upsell)
-      const upsell = fakeDeal();
+      const upsell = await fakeDeal();
       const upsellDeal = await createDealMutation.mutateAsync({
         title: `Upsell - ${upsell.title}`,
         contactId: createdContact.id,
@@ -578,7 +578,7 @@ export const useInboxController = () => {
         .eq('id', upsellDeal.id);
 
       // Deal parado há > 7d (Stalled)
-      const stalled = fakeDeal();
+      const stalled = await fakeDeal();
       const stalledDeal = await createDealMutation.mutateAsync({
         title: `Stalled - ${stalled.title}`,
         contactId: createdContact.id,

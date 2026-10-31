@@ -29,6 +29,7 @@ import {
 import { TemplateSelector, type TemplateData } from './TemplateSelector';
 import { StickerTray } from './StickerTray';
 import type { ConversationView, MessageContent, MessagingMessage } from '@/lib/messaging/types';
+import { stripWhatsAppMarkup } from '@/lib/messaging/format-whatsapp';
 
 interface MessageInputProps {
   conversation: ConversationView;
@@ -647,7 +648,7 @@ export function MessageInput({ conversation, replyTo, onCancelReply }: MessageIn
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
               {replyTo.contentType === 'text'
-                ? (replyTo.content as { text: string }).text
+                ? stripWhatsAppMarkup((replyTo.content as { text: string }).text)
                 : replyTo.contentType === 'audio' ? '🎤 Áudio'
                 : replyTo.contentType === 'image' ? '📷 Foto'
                 : replyTo.contentType === 'document' ? '📄 Documento'

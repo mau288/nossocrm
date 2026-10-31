@@ -26,6 +26,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -50,7 +51,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useUIState } from '@/store/uiState';
 import { prefetchRoute, RouteName } from '@/lib/prefetch';
-import { isDebugMode, enableDebugMode, disableDebugMode } from '@/lib/debug';
+import { isDebugMode, enableDebugMode, disableDebugMode } from '@/lib/debug/mode';
 import { SkipLink } from '@/lib/a11y';
 import { useResponsiveMode } from '@/hooks/useResponsiveMode';
 import { BottomNav, MoreMenuSheet, NavigationRail } from '@/components/navigation';
@@ -58,7 +59,9 @@ import { useUnreadCount } from '@/lib/query/hooks/useConversationsQuery';
 
 // Lazy load AI Assistant (deprecated - using UIChat now)
 // const AIAssistant = lazy(() => import('./AIAssistant'));
-import { UIChat } from './ai/UIChat';
+// ARK (Onda 0 / 0.7): UIChat (ai-sdk + markdown + framer) so entra no bundle quando o
+// painel de IA e aberto — antes vinha no shell de todas as telas.
+const UIChat = dynamic(() => import('./ai/UIChat').then((m) => m.UIChat), { ssr: false });
 
 import { NotificationPopover } from './notifications/NotificationPopover';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';

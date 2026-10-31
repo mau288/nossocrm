@@ -281,6 +281,35 @@ export const contactsService = {
   },
 
   /**
+   * ARK (Onda 0 / 0.5): busca UM contato pelo id, direto no banco.
+   * Antes, `useContact(id)` baixava os 1.000 contatos (604 KB) para achar um.
+   *
+   * @param id - ID do contato.
+   * @returns Promise com o contato (ou null se não existir) ou erro.
+   */
+  async getById(id: string): Promise<{ data: Contact | null; error: Error | null }> {
+    try {
+      if (!supabase) {
+        return { data: null, error: new Error('Supabase não configurado') };
+      }
+      const safeId = sanitizeUUID(id);
+      if (!safeId) return { data: null, error: null };
+
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('id', safeId)
+        .is('deleted_at', null)
+        .maybeSingle();
+
+      if (error) return { data: null, error };
+      return { data: data ? transformContact(data as DbContact) : null, error: null };
+    } catch (e) {
+      return { data: null, error: e as Error };
+    }
+  },
+
+  /**
    * Busca todos os contatos da organização.
    *
    * @returns Promise com array de contatos ou erro.

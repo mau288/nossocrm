@@ -110,9 +110,10 @@ export const useContact = (id: string | undefined) => {
   return useQuery({
     queryKey: queryKeys.contacts.detail(id || ''),
     queryFn: async () => {
-      const { data, error } = await contactsService.getAll();
+      // ARK (Onda 0 / 0.5): um contato = uma linha do banco, nao a lista inteira.
+      const { data, error } = await contactsService.getById(id!);
       if (error) throw error;
-      return (data || []).find(c => c.id === id) || null;
+      return data ?? null;
     },
     enabled: !authLoading && !!user && !!id,
   });

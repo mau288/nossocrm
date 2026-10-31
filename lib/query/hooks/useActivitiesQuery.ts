@@ -78,10 +78,10 @@ export const useActivitiesByDeal = (dealId: string | undefined) => {
   return useQuery({
     queryKey: queryKeys.activities.byDeal(dealId || ''),
     queryFn: async () => {
-      const { data, error } = await activitiesService.getAll();
+      // ARK (Onda 0 / 0.5): filtra por deal_id no banco em vez de baixar as 1.000 mais recentes.
+      const { data, error } = await activitiesService.getByDealId(dealId!);
       if (error) throw error;
-      const filtered = (data || []).filter(a => a.dealId === dealId);
-      return sortActivitiesSmart(filtered);
+      return data || [];
     },
     enabled: !authLoading && !!user && !!dealId,
   });

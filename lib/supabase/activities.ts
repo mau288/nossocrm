@@ -152,6 +152,38 @@ export const activitiesService = {
   },
 
   /**
+   * ARK (Onda 0 / 0.5): atividades de UM negócio, filtradas no banco.
+   * Antes, `useActivitiesByDeal` baixava as 1.000 atividades mais recentes e filtrava aqui.
+   *
+   * @param dealId - ID do negócio.
+   * @returns Promise com as atividades do negócio (ordenação inteligente) ou erro.
+   */
+  async getByDealId(dealId: string): Promise<{ data: Activity[] | null; error: Error | null }> {
+    try {
+      const sb = supabase;
+      if (!sb) return { data: null, error: new Error('Supabase não configurado') };
+      const safeId = sanitizeUUID(dealId);
+      if (!safeId) return { data: [], error: null };
+
+      const { data, error } = await sb
+        .from('activities')
+        .select(`
+          *,
+          deals:deal_id (title)
+        `)
+        .eq('deal_id', safeId)
+        .order('date', { ascending: false })
+        .limit(500);
+
+      if (error) return { data: null, error };
+      const activities = (data || []).map(a => transformActivity(a as DbActivityWithDeal));
+      return { data: sortActivitiesSmart(activities), error: null };
+    } catch (e) {
+      return { data: null, error: e as Error };
+    }
+  },
+
+  /**
    * Cria uma nova atividade.
    * 
    * @param activity - Dados da atividade (sem id e createdAt).

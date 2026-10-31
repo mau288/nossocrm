@@ -83,6 +83,9 @@ export const queryKeys = {
           [...base.all, 'filtered',
             filters?.status ?? null,
             filters?.channelId ?? null,
+            // ARK (Onda 0 / 0.1): channelType faltava aqui — trocar o filtro de canal nao
+            // refazia a busca e a lista so mudava no proximo polling.
+            filters?.channelType ?? null,
             filters?.businessUnitId ?? null,
             filters?.assignedUserId ?? null,
             filters?.hasUnread ?? null,

@@ -68,10 +68,8 @@ export const CreateDealModal: React.FC<CreateDealModalProps> = ({
         setIsSubmitting(false);
     };
 
-    const fillWithFakeData = () => {
-        const deal = fakeDeal();
-        const contact = fakeContact();
-        const company = fakeCompany();
+    const fillWithFakeData = async () => {
+        const [deal, contact, company] = await Promise.all([fakeDeal(), fakeContact(), fakeCompany()]);
         
         setDealData({
             title: deal.title,

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEBUG_MODE_EVENT, isDebugMode } from './index';
+import { DEBUG_MODE_EVENT, isDebugMode } from './mode';
 
 function subscribe(callback: () => void) {
   if (typeof window === 'undefined') return () => undefined;
