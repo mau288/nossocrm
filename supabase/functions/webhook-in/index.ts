@@ -317,69 +317,38 @@ Deno.serve(async (req) => {
   }
 
   if (leadEmail || leadPhone) {
-    const filters: string[] = [];
-    if (leadEmail) filters.push(`email.eq.${leadEmail}`);
-    if (leadPhone) filters.push(`phone.eq.${leadPhone}`);
+    // ARK (Onda 2B): porta unica de identidade — telefone em E.164 com a regra do 9o digito,
+    // dedup por telefone (com/sem 9), e-mail e @, tags somam, `origem:<canal>` sempre, e quem
+    // ainda era 'conversa' (so recebeu disparo) vira contato porque foi CAPTADO com dados.
+    const channelName = (payload.source || "webhook-in").toString().trim().toLowerCase();
+    const { data: identity, error: identityErr } = await supabase.rpc("upsert_contact_identity", {
+      p_organization_id: source.organization_id,
+      p_name: leadName || null,
+      p_phone: leadPhone,
+      p_email: leadEmail,
+      p_source: payload.source || "webhook",
+      p_channel: channelName,
+      p_tags: leadTags.length > 0 ? leadTags : null,
+      p_lifecycle: "contato",
+    });
 
-    const { data: existingContacts, error: findErr } = await supabase
-      .from("contacts")
-      .select("id, name, email, phone, organization_id, tags")
-      .eq("organization_id", source.organization_id)
-      .or(filters.join(","))
-      .limit(1);
+    if (identityErr) return json(500, { error: "Falha ao localizar/criar contato", details: identityErr.message });
+    const ident = (identity ?? {}) as { contact_id?: string; created?: boolean };
+    contactId = ident.contact_id ?? null;
+    if (!contactId) return json(500, { error: "Falha ao criar contato", details: "upsert_contact_identity sem id" });
+    contactAction = ident.created ? "created" : "updated";
 
-    if (findErr) return json(500, { error: "Falha ao buscar contato", details: findErr.message });
-
-    if (existingContacts && existingContacts.length > 0) {
-      const existing = existingContacts[0];
-      contactId = existing.id;
-
-      const updates: Record<string, unknown> = {};
-      if (leadName && (!existing.name || existing.name === "Sem nome")) updates.name = leadName;
-      if (leadEmail && !existing.email) updates.email = leadEmail;
-      if (leadPhone && !existing.phone) updates.phone = leadPhone;
-      if (companyName) updates.company_name = companyName;
-      if (clientCompanyId) updates.client_company_id = clientCompanyId;
-      if (payload.notes) updates.notes = payload.notes;
-      if (payload.source) updates.source = payload.source;
-      // Tags acumulam: o rastro de funis do lead nunca é sobrescrito.
-      if (leadTags.length > 0) {
-        const current: string[] = Array.isArray(existing.tags) ? existing.tags : [];
-        const merged = [...current];
-        for (const tag of leadTags) if (!merged.includes(tag)) merged.push(tag);
-        if (merged.length !== current.length) updates.tags = merged;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        const { error: updErr } = await supabase
-          .from("contacts")
-          .update(updates)
-          .eq("id", contactId);
-        if (updErr) return json(500, { error: "Falha ao atualizar contato", details: updErr.message });
-        contactAction = "updated";
-      } else {
-        contactAction = "none";
-      }
-    } else {
-      const { data: created, error: createErr } = await supabase
+    // Campos fora da identidade (empresa, notas) continuam aqui.
+    const updates: Record<string, unknown> = {};
+    if (companyName) updates.company_name = companyName;
+    if (clientCompanyId) updates.client_company_id = clientCompanyId;
+    if (payload.notes) updates.notes = payload.notes;
+    if (Object.keys(updates).length > 0) {
+      const { error: updErr } = await supabase
         .from("contacts")
-        .insert({
-          organization_id: source.organization_id,
-          ...(leadTags.length > 0 ? { tags: leadTags } : {}),
-          name: leadName || leadEmail || leadPhone || "Lead",
-          email: leadEmail,
-          phone: leadPhone,
-          source: payload.source || "webhook",
-          company_name: companyName,
-          client_company_id: clientCompanyId,
-          notes: payload.notes || null,
-        })
-        .select("id")
-        .single();
-
-      if (createErr) return json(500, { error: "Falha ao criar contato", details: createErr.message });
-      contactId = created?.id ?? null;
-      if (contactId) contactAction = "created";
+        .update(updates)
+        .eq("id", contactId);
+      if (updErr) return json(500, { error: "Falha ao atualizar contato", details: updErr.message });
     }
   }
 

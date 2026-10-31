@@ -162,7 +162,8 @@ export interface Contact {
   birthDate?: string; // New field for Agentic AI tasks
   status: 'ACTIVE' | 'INACTIVE' | 'CHURNED';
   stage: string; // ID do LifecycleStage (antes era ContactStage enum)
-  source?: 'WEBSITE' | 'LINKEDIN' | 'REFERRAL' | 'MANUAL'; // Origem do contato
+  /** Origem do contato: canal/porta de entrada (whatsapp, instagram, tiktok, importacao, webhook-in, manual, ...). */
+  source?: string;
   notes?: string; // Anotações gerais
   lastPurchaseDate?: string;
   totalValue?: number; // LTV
@@ -186,6 +187,11 @@ export interface Contact {
    * (não aparece em Contatos); 'contato' = contato de verdade. Promoção via RPC promote_contact.
    */
   lifecycle?: ContactLifecycle;
+
+  /** ARK (Onda 2B): @ do Instagram (sem arroba). Chave de dedup das DMs. */
+  instagramUsername?: string;
+  /** ARK (Onda 2B): @ do TikTok (sem arroba). Chave de dedup das DMs. */
+  tiktokUsername?: string;
 }
 
 export type ContactLifecycle = 'conversa' | 'contato';

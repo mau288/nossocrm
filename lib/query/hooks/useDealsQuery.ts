@@ -612,7 +612,9 @@ export const useCreateDealWithContact = () => {
       }
 
       // Create contact if provided
-      if (relatedData?.contact?.name) {
+      // ARK (Onda 2B): se o modal ja selecionou um contato existente (deal.contactId), NAO cria
+      // outro — era a origem de contatos duplicados a cada "Novo Negocio".
+      if (!finalContactId && relatedData?.contact?.name) {
         const { data: contact, error: contactError } = await contactsService.create({
           name: relatedData.contact.name,
           email: relatedData.contact.email || '',

@@ -271,21 +271,23 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   }, [selectedConversation?.contactId, queryClient]);
 
   // Create contact and link
+  // ARK (Onda 2B): "Criar e Vincular" passa pela porta unica — normaliza o telefone (9o digito),
+  // reaproveita contato existente (telefone/e-mail/@) e carimba origem:manual.
   const handleCreateContact = useCallback(async (params: { name: string; phone?: string }) => {
     if (!profile?.organization_id) throw new Error('Organization not found');
 
-    const { data: contact, error: createError } = await supabase
-      .from('contacts')
-      .insert({
-        name: params.name,
-        phone: params.phone,
-        organization_id: profile.organization_id,
-      })
-      .select('id')
-      .single();
+    const { data, error: createError } = await supabase.rpc('upsert_contact_identity', {
+      p_organization_id: profile.organization_id,
+      p_name: params.name,
+      p_phone: params.phone || null,
+      p_channel: 'manual',
+      p_lifecycle: 'contato',
+    });
 
     if (createError) throw createError;
-    return contact.id;
+    const contactId = (data as { contact_id?: string } | null)?.contact_id;
+    if (!contactId) throw new Error('Contato nao criado');
+    return contactId;
   }, [profile?.organization_id]);
 
   // View contact in CRM
