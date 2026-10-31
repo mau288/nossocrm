@@ -74,8 +74,6 @@ export function removePendingDeletion(id: string): void {
 
 /** Tamanho da pagina da lista de conversas. */
 export const CONVERSATIONS_PAGE_SIZE = 40;
-/** Paginas mantidas em memoria (o polling refaz todas as carregadas). */
-const CONVERSATIONS_MAX_PAGES = 5;
 
 export interface ConversationsPage {
   rows: ConversationView[];
@@ -209,7 +207,9 @@ export function useConversations(filters?: ConversationFilters) {
       const { data, error } = await query;
       if (error) throw error;
 
-      let rows = (data || []).map((row) => toConversationView(row as Record<string, unknown>));
+      let rows = // O parser de tipos do supabase-js nao entende colunas interpoladas; o shape e validado
+      // em toConversationView.
+      ((data || []) as unknown as Record<string, unknown>[]).map((row) => toConversationView(row));
       // Rede de seguranca: o servidor ja filtrou; isto so protege contra embed sem match.
       if (filters?.channelType) {
         rows = rows.filter((conv) => conv.channelType === filters.channelType);
@@ -218,7 +218,6 @@ export function useConversations(filters?: ConversationFilters) {
       return { rows, nextOffset: full ? offset + CONVERSATIONS_PAGE_SIZE : null };
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
-    maxPages: CONVERSATIONS_MAX_PAGES,
     staleTime: 30 * 1000, // 30 seconds
     // Rede de seguranca: o realtime e o caminho principal. Com o canal de pe, o polling
     // e so um "acerto" a cada 60 s; se o WebSocket cair, volta para 20 s.
