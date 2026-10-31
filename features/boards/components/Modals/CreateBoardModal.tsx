@@ -785,10 +785,13 @@ export const CreateBoardModal: React.FC<CreateBoardModalProps> = ({
         </div>
       </Modal>
 
-      <LifecycleSettingsModal
-        isOpen={isLifecycleModalOpen}
-        onClose={() => setIsLifecycleModalOpen(false)}
-      />
+      {/* ARK (Onda 1 / 1.3b): so monta aberto (o modal de ciclo de vida busca todos os contatos). */}
+      {isLifecycleModalOpen && (
+        <LifecycleSettingsModal
+          isOpen
+          onClose={() => setIsLifecycleModalOpen(false)}
+        />
+      )}
 
       {editingBoard && (
         <BoardAIConfigModal
