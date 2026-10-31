@@ -21,6 +21,26 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+/**
+ * ARK (Onda 3, sobra da Onda 0 / 0.2): o supabase-js lanca PostgrestError, que NAO e
+ * instanceof Error — por isso todo erro de banco virava "Unknown error" no log. Mesmo
+ * extrator da function da Zernio.
+ */
+function errMsg(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const e = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+    const parts = [e.code, e.message, e.details, e.hint].filter((x) => typeof x === "string" && x) as string[];
+    if (parts.length) return parts.join(" | ").slice(0, 500);
+    try {
+      return JSON.stringify(error).slice(0, 500);
+    } catch {
+      /* ignore */
+    }
+  }
+  return String(error ?? "Unknown error");
+}
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -664,7 +684,7 @@ Deno.serve(async (req) => {
       .update({
         processed: true,
         processed_at: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: errMsg(error),
       })
       .eq("channel_id", channelId)
       .eq("external_event_id", externalEventId);
@@ -673,7 +693,7 @@ Deno.serve(async (req) => {
     return json(200, {
       ok: false,
       error: "Erro ao processar webhook",
-      details: error instanceof Error ? error.message : "Unknown error",
+      details: errMsg(error),
     });
   }
 });
@@ -868,21 +888,8 @@ async function handleMessagesUpsert(
 
     if (convCreateErr) throw convCreateErr;
     conversationId = newConv.id;
-
-    // Auto-create deal if lead routing rule exists
-    if (contactId) {
-      const routingRule = await getLeadRoutingRule(supabase, channel.id);
-      if (routingRule) {
-        await autoCreateDeal(supabase, {
-          organizationId: channel.organization_id,
-          contactId,
-          boardId: routingRule.boardId,
-          stageId: routingRule.stageId,
-          conversationId,
-          contactName: pushName || phone,
-        });
-      }
-    }
+    // ARK (Onda 3 / 3.2): a regra de roteamento NAO roda mais na criacao da conversa — o negocio
+    // nasce no banco (trigger trg_route_lead_on_reply) quando o lead responde a uma abordagem.
   }
 
   // ARK: mensagem enviada PELO CRM tambem gera send.message. A linha dela ja existe (o CRM grava
@@ -1161,106 +1168,3 @@ async function fetchEvolutionPhone(
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-async function getLeadRoutingRule(
-  supabase: ReturnType<typeof createClient>,
-  channelId: string
-): Promise<{ boardId: string; stageId: string | null } | null> {
-  const { data, error } = await supabase
-    .from("lead_routing_rules")
-    .select("board_id, stage_id, enabled")
-    .eq("channel_id", channelId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[Evolution] Error fetching lead routing rule:", error);
-    return null;
-  }
-
-  if (!data || !data.enabled || !data.board_id) return null;
-
-  return { boardId: data.board_id, stageId: data.stage_id };
-}
-
-async function autoCreateDeal(
-  supabase: ReturnType<typeof createClient>,
-  params: {
-    organizationId: string;
-    contactId: string;
-    boardId: string;
-    stageId?: string | null;
-    conversationId: string;
-    contactName: string;
-  }
-) {
-  try {
-    let stageId = params.stageId;
-
-    if (!stageId) {
-      const { data: firstStage, error: stageErr } = await supabase
-        .from("board_stages")
-        .select("id")
-        .eq("board_id", params.boardId)
-        .order("order", { ascending: true })
-        .limit(1)
-        .single();
-
-      if (stageErr || !firstStage) {
-        console.error("[Evolution] Could not find first stage for auto-create deal:", stageErr);
-        return;
-      }
-      stageId = firstStage.id;
-    }
-
-    const { data: newDeal, error: dealErr } = await supabase
-      .from("deals")
-      .insert({
-        organization_id: params.organizationId,
-        board_id: params.boardId,
-        stage_id: stageId,
-        contact_id: params.contactId,
-        title: `${params.contactName} - WhatsApp`,
-        value: 0,
-      })
-      .select("id")
-      .single();
-
-    if (dealErr) {
-      console.error("[Evolution] Error auto-creating deal:", dealErr);
-      return;
-    }
-
-    console.log(`[Evolution] Auto-created deal: ${newDeal.id} for contact ${params.contactId}`);
-
-    // Update conversation metadata with deal reference — abort on read error
-    // to avoid wiping existing JSONB data with a bad merge.
-    const { data: conv, error: convMetaErr } = await supabase
-      .from("messaging_conversations")
-      .select("metadata")
-      .eq("id", params.conversationId)
-      .maybeSingle();
-
-    if (convMetaErr) {
-      console.error("[Evolution] Failed to read conversation metadata:", convMetaErr);
-      // Do not proceed with update to avoid losing existing metadata
-      return;
-    }
-
-    const { error: metaUpdateErr } = await supabase
-      .from("messaging_conversations")
-      .update({
-        metadata: {
-          ...((conv?.metadata as Record<string, unknown>) || {}),
-          deal_id: newDeal.id,
-          auto_created_deal: true,
-        },
-      })
-      .eq("id", params.conversationId);
-
-    if (metaUpdateErr) {
-      console.error("[Evolution] Failed to update conversation metadata:", metaUpdateErr);
-    }
-  } catch (error) {
-    console.error("[Evolution] Unexpected error in autoCreateDeal:", error);
-  }
-}

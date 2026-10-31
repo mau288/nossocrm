@@ -2,14 +2,38 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
-import { TrendingUp, Clock, Target, DollarSign, Trophy, Users, Download, Settings } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { TrendingUp, Clock, Target, DollarSign, Trophy, Users, Download, Settings, BarChart3, Gauge } from 'lucide-react';
 import { useDashboardMetrics, PeriodFilter, COMPARISON_LABELS } from '../dashboard/hooks/useDashboardMetrics';
 import { PeriodFilterSelect } from '@/components/filters/PeriodFilterSelect';
 import { LazyRevenueTrendChart, ChartWrapper } from '@/components/charts';
 import { generateReportPDF } from './utils/generateReportPDF';
 import { useBoards } from '@/lib/query/hooks';
 import { useAuth } from '@/context/AuthContext';
+import { GestaoPanel } from './gestao/GestaoPanel';
+
+// ARK Onda 3: Relatorios ganha duas visoes — Vendas (a de sempre) e Gestao (painel do gestor).
+type ReportsView = 'vendas' | 'gestao';
+
+const ReportsViewToggle: React.FC<{ view: ReportsView; onChange: (v: ReportsView) => void }> = ({ view, onChange }) => (
+  <div className="flex items-center rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden text-sm font-medium">
+    {([['vendas', 'Vendas', BarChart3], ['gestao', 'Gestão', Gauge]] as const).map(([key, label, Icon]) => (
+      <button
+        key={key}
+        type="button"
+        onClick={() => onChange(key)}
+        className={`flex items-center gap-1.5 px-3 py-2 transition-colors ${
+          view === key
+            ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/10'
+        }`}
+      >
+        <Icon size={15} />
+        {label}
+      </button>
+    ))}
+  </div>
+);
 
 /**
  * Componente React `ReportsPage`.
@@ -17,6 +41,8 @@ import { useAuth } from '@/context/AuthContext';
  */
 const ReportsPage: React.FC = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [view, setView] = useState<ReportsView>(searchParams?.get('view') === 'gestao' ? 'gestao' : 'vendas');
   const { data: boards = [] } = useBoards();
   const { profile } = useAuth();
   const [period, setPeriod] = useState<PeriodFilter>('this_month');
@@ -174,6 +200,12 @@ const ReportsPage: React.FC = () => {
     wonRevenue,
   ]);
 
+  const viewToggle = <ReportsViewToggle view={view} onChange={setView} />;
+
+  if (view === 'gestao') {
+    return <GestaoPanel viewToggle={viewToggle} />;
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-7rem)] space-y-4">
       {/* Header com Filtros */}
@@ -187,6 +219,7 @@ const ReportsPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {viewToggle}
           <select
             value={selectedBoardId}
             onChange={(e) => setSelectedBoardId(e.target.value)}

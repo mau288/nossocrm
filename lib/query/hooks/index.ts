@@ -251,6 +251,11 @@ export {
 // ARK #53: historico de metas dos funis
 export { useBoardGoalHistory, useArchiveBoardGoal } from './useBoardGoalHistoryQuery';
 
+// ARK Onda 3: painel do gestor (Relatorios > Gestao)
+export { useGestaoPainelQuery, type GestaoPainel } from './useGestaoPainelQuery';
+export { useSellerGoals, useCreateSellerGoal, useUpdateSellerGoal, useArchiveSellerGoal, useDeleteSellerGoal } from './useSellerGoalsQuery';
+export { useGestaoAlertSettings, useSaveGestaoAlertSettings, useGestaoAlertLog, useSendGestaoAlertTest } from './useGestaoAlertsQuery';
+
 // Org Settings (user prefs + org AI config)
 export {
   useOrgSettings,

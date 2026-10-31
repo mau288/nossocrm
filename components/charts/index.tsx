@@ -19,6 +19,8 @@ export const ChartSkeleton: React.FC<{ height?: number | string }> = ({ height =
 // Lazy loaded chart components
 export const LazyFunnelChart = lazy(() => import('./FunnelChart'));
 export const LazyRevenueTrendChart = lazy(() => import('./RevenueTrendChart'));
+// ARK Onda 3: abertas x resolvidas por dia (Relatorios > Gestao)
+export const LazyAbertasResolvidasChart = lazy(() => import('./AbertasResolvidasChart'));
 
 // Wrapper component for charts with suspense
 interface ChartWrapperProps {

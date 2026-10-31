@@ -154,107 +154,6 @@ async function triggerAIProcessing(params: {
 }
 
 // =============================================================================
-// LEAD ROUTING (same behavior as the Evolution function)
-// =============================================================================
-
-async function getLeadRoutingRule(
-  supabase: ReturnType<typeof createClient>,
-  channelId: string
-): Promise<{ boardId: string; stageId: string | null } | null> {
-  const { data, error } = await supabase
-    .from("lead_routing_rules")
-    .select("board_id, stage_id, enabled")
-    .eq("channel_id", channelId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[Zernio] Error fetching lead routing rule:", error);
-    return null;
-  }
-  if (!data || !data.enabled || !data.board_id) return null;
-  return { boardId: data.board_id, stageId: data.stage_id };
-}
-
-async function autoCreateDeal(
-  supabase: ReturnType<typeof createClient>,
-  params: {
-    organizationId: string;
-    contactId: string;
-    boardId: string;
-    stageId?: string | null;
-    conversationId: string;
-    contactName: string;
-    channelLabel?: string;
-  }
-) {
-  try {
-    let stageId = params.stageId;
-
-    if (!stageId) {
-      const { data: firstStage, error: stageErr } = await supabase
-        .from("board_stages")
-        .select("id")
-        .eq("board_id", params.boardId)
-        .order("order", { ascending: true })
-        .limit(1)
-        .single();
-
-      if (stageErr || !firstStage) {
-        console.error("[Zernio] Could not find first stage for auto-create deal:", stageErr);
-        return;
-      }
-      stageId = firstStage.id;
-    }
-
-    const { data: newDeal, error: dealErr } = await supabase
-      .from("deals")
-      .insert({
-        organization_id: params.organizationId,
-        board_id: params.boardId,
-        stage_id: stageId,
-        contact_id: params.contactId,
-        title: `${params.contactName} - ${params.channelLabel ?? "Instagram"}`,
-        value: 0,
-      })
-      .select("id")
-      .single();
-
-    if (dealErr) {
-      console.error("[Zernio] Error auto-creating deal:", dealErr);
-      return;
-    }
-
-    const { data: conv, error: convMetaErr } = await supabase
-      .from("messaging_conversations")
-      .select("metadata")
-      .eq("id", params.conversationId)
-      .maybeSingle();
-
-    if (convMetaErr) {
-      console.error("[Zernio] Failed to read conversation metadata:", convMetaErr);
-      return;
-    }
-
-    const { error: metaUpdateErr } = await supabase
-      .from("messaging_conversations")
-      .update({
-        metadata: {
-          ...((conv?.metadata as Record<string, unknown>) || {}),
-          deal_id: newDeal.id,
-          auto_created_deal: true,
-        },
-      })
-      .eq("id", params.conversationId);
-
-    if (metaUpdateErr) {
-      console.error("[Zernio] Failed to update conversation metadata:", metaUpdateErr);
-    }
-  } catch (error) {
-    console.error("[Zernio] Unexpected error in autoCreateDeal:", error);
-  }
-}
-
-// =============================================================================
 // EVENT NORMALIZATION
 // =============================================================================
 
@@ -789,22 +688,8 @@ async function ensureConversation(
     throw convCreateErr;
   }
 
-  // Auto-create deal if lead routing rule exists
-  if (contactId) {
-    const routingRule = await getLeadRoutingRule(supabase, channel.id);
-    if (routingRule) {
-      await autoCreateDeal(supabase, {
-        organizationId: channel.organization_id,
-        contactId,
-        boardId: routingRule.boardId,
-        stageId: routingRule.stageId,
-        conversationId: newConv.id,
-        contactName,
-        channelLabel: platformLabel(channel),
-      });
-    }
-  }
-
+  // ARK (Onda 3 / 3.2): a regra de roteamento NAO roda mais na criacao da conversa — o negocio
+  // nasce no banco (trigger trg_route_lead_on_reply) quando o lead responde a uma abordagem.
   return { conversationId: newConv.id, contactId, created: true };
 }
 

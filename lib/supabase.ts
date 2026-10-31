@@ -9,6 +9,8 @@ export { activitiesService } from './supabase/activities';
 export { productsService } from './supabase/products';
 export { gatewaysService, financeiroSettingsService } from './supabase/gateways';
 export { boardGoalHistoryService } from './supabase/boardGoals';
+export { sellerGoalsService } from './supabase/sellerGoals';
+export { gestaoAlertsService } from './supabase/gestaoAlerts';
 export { settingsService, lifecycleStagesService } from './supabase/settings';
 
 // Re-export Realtime hooks

@@ -576,10 +576,10 @@ function ChannelCard({
               </button>
               <div>
                 <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Criar deal automaticamente
+                  Criar negócio automaticamente
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Quando uma nova conversa iniciar neste canal
+                  Quando o lead responder a uma abordagem neste canal (conversa de duas vias). DM automática e disparo sem resposta não criam negócio.
                 </p>
               </div>
             </div>
@@ -641,7 +641,7 @@ function ChannelCard({
                       ))}
                     </select>
                     <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                      O deal será criado neste estágio quando a conversa iniciar.
+                      O negócio entra neste estágio na primeira resposta do lead (um por contato e funil).
                     </p>
                   </div>
                 )}

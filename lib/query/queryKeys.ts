@@ -235,6 +235,18 @@ export const queryKeys = {
     boardGoalHistory: createQueryKeys('boardGoalHistory'),
 
     /**
+     * ARK Onda 3: painel do gestor, metas por vendedor e alertas (Relatorios > Gestao).
+     */
+    gestao: {
+        all: ['gestao'] as const,
+        painel: (orgId: string, period: string, slaMinutes: number, userId?: string, maxHours?: number) =>
+            ['gestao', 'painel', orgId, period, slaMinutes, userId ?? 'all', maxHours ?? 168] as const,
+        sellerGoals: (orgId: string) => ['gestao', 'sellerGoals', orgId] as const,
+        alertSettings: (orgId: string) => ['gestao', 'alertSettings', orgId] as const,
+        alertLog: (orgId: string) => ['gestao', 'alertLog', orgId] as const,
+    },
+
+    /**
      * Org-level + user settings query keys.
      */
     orgSettings: createQueryKeys('orgSettings'),
