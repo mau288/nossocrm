@@ -656,7 +656,7 @@ Deno.serve(async (req) => {
     if (eventNorm === "messages.upsert" || eventNorm === "send.message") {
       // ARK: sem o send.message, tudo que saia por API (respostas do agente de IA, mensagens
       // agendadas) ficava invisivel no CRM — a Evolution so manda upsert para o que sai do aparelho.
-      await handleMessagesUpsert(supabase, channel, payload as EvolutionUpsertPayload);
+      await handleMessagesUpsert(supabase, channel, payload as EvolutionUpsertPayload, eventNorm === "send.message");
     } else if (eventNorm === "messages.update") {
       await handleMessagesUpdate(supabase, channel, payload as EvolutionUpdatePayload);
     } else if (eventNorm === "connection.update") {
@@ -771,7 +771,9 @@ async function handleMessagesUpsert(
     external_identifier: string;
     credentials?: Record<string, string> | null;
   },
-  payload: EvolutionUpsertPayload
+  payload: EvolutionUpsertPayload,
+  // ARK (Onda 3): send.message = saiu pela API (agente de IA do n8n, agendada); messages.upsert fromMe = aparelho/WhatsApp Web
+  viaApi = false
 ) {
   const { data } = payload;
 
@@ -939,9 +941,13 @@ async function handleMessagesUpsert(
         ? { sent_at: timestamp.toISOString() }
         : { delivered_at: timestamp.toISOString() }),
       sender_name: isFromMe ? null : pushName,
+      // ARK (Onda 3): resposta que saiu pela API sem linha do CRM = agente de IA (n8n). O trigger
+      // trg_assign_on_reply atribui a conversa ao perfil marcado como is_ai_agent.
+      ...(isFromMe && viaApi ? { sender_type: "ai" } : {}),
       ...(isLate ? { created_at: timestamp.toISOString() } : {}),
       metadata: {
         evolution_message_id: externalMessageId,
+        source: isFromMe ? (viaApi ? "api" : "device") : "contact",
         message_type: data.messageType,
         timestamp: data.messageTimestamp,
       },
