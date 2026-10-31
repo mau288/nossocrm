@@ -25,7 +25,10 @@ export interface MessagingMetrics {
     byType: Record<string, number>;
   };
   contacts: {
+    /** ARK Onda 3: contatos (lifecycle 'contato') que viraram contato no periodo */
     new: number;
+    /** conversas criadas no periodo (era o antigo "new") */
+    newConversations?: number;
     followUp: number;
   };
   sla: {

@@ -21,6 +21,26 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+/**
+ * ARK (Onda 3, sobra da Onda 0 / 0.2): o supabase-js lanca PostgrestError, que NAO e
+ * instanceof Error — por isso todo erro de banco virava "Unknown error" no log. Mesmo
+ * extrator da function da Zernio.
+ */
+function errMsg(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const e = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+    const parts = [e.code, e.message, e.details, e.hint].filter((x) => typeof x === "string" && x) as string[];
+    if (parts.length) return parts.join(" | ").slice(0, 500);
+    try {
+      return JSON.stringify(error).slice(0, 500);
+    } catch {
+      /* ignore */
+    }
+  }
+  return String(error ?? "Unknown error");
+}
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -664,7 +684,7 @@ Deno.serve(async (req) => {
       .update({
         processed: true,
         processed_at: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: errMsg(error),
       })
       .eq("channel_id", channelId)
       .eq("external_event_id", externalEventId);
@@ -673,7 +693,7 @@ Deno.serve(async (req) => {
     return json(200, {
       ok: false,
       error: "Erro ao processar webhook",
-      details: error instanceof Error ? error.message : "Unknown error",
+      details: errMsg(error),
     });
   }
 });

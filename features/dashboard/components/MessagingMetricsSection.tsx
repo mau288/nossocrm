@@ -259,7 +259,7 @@ export function MessagingMetricsSection({ period }: { period: PeriodFilter }) {
           icon={UserPlus}
           label="Novos Contatos"
           value={contacts.new}
-          subtext={`${contacts.followUp} follow-ups`}
+          subtext={`${contacts.newConversations ?? 0} conversas novas · ${contacts.followUp} follow-ups`}
           color="blue"
         />
 
