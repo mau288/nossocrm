@@ -101,6 +101,13 @@ export async function updateSession(request: NextRequest) {
                 : undefined
             const { data, error } = await supabase.auth.getClaims(undefined, options)
             hasUser = !error && !!data?.claims?.sub
+            // Seguro contra lockout: se a validacao local falhar por qualquer motivo (JWKS fora
+            // do ar, chave desconhecida), cai no caminho antigo (getUser na rede) em vez de
+            // mandar usuario logado para /login.
+            if (!hasUser && error) {
+                const { data: u } = await supabase.auth.getUser()
+                hasUser = !!u?.user
+            }
             // Guarda o JWKS que o cliente acabou de usar/baixar para os próximos requests.
             const used = (supabase.auth as unknown as { jwks?: Jwks }).jwks
             if (used && Array.isArray(used.keys) && used.keys.length > 0) {
