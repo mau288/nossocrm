@@ -21,6 +21,8 @@ import {
   KanbanSquare,
   Send,
   UserPlus,
+  Compass,
+  ShoppingBag,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -33,8 +35,34 @@ import { ScheduledMessagesSection } from './ScheduledMessagesSection';
 import { ContactPhoneLink } from './ContactPhoneLink';
 import { WindowExpiryBadge } from './WindowExpiryBadge';
 import { ContactPanelSkeleton } from './skeletons/ContactPanelSkeleton';
-import { useUpdateContact } from '@/lib/query/hooks/useContactsQuery';
+import { useUpdateContact, useContact } from '@/lib/query/hooks/useContactsQuery';
 import { useToggleConversationAiPause } from '@/lib/query/hooks/useMessagingConversationsQuery';
+import { useContactPurchases } from '@/lib/query/hooks/useContactPurchasesQuery';
+
+// ARK (Onda 2B): rótulos da origem (source / tag origem:<canal>)
+const ORIGEM_LABEL: Record<string, string> = {
+  whatsapp: 'WhatsApp',
+  instagram: 'Instagram',
+  tiktok: 'TikTok',
+  importacao: 'Importação de lista',
+  'webhook-in': 'Captação (webhook)',
+  webhook: 'Captação (webhook)',
+  api: 'Integração (API)',
+  manual: 'Cadastro manual',
+};
+function origemLabel(v: string | undefined | null): string | null {
+  if (!v) return null;
+  const k = v.trim().toLowerCase();
+  return ORIGEM_LABEL[k] ?? v;
+}
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const PAYMENT_LABEL: Record<string, string> = {
+  boleto: 'boleto',
+  pix: 'PIX',
+  cartao: 'cartão',
+  cartao_parcelado: 'cartão parcelado',
+  cartao_avista: 'cartão à vista',
+};
 
 interface ContactPanelProps {
   conversation: ConversationView | null | undefined;
@@ -124,6 +152,9 @@ export const ContactPanel = memo(function ContactPanel({
   const toggleConversationAiPause = useToggleConversationAiPause();
 
   const contactId = conversation?.contactId;
+  // ARK (Onda 2B): origem (source + tags origem:/funil:/edicao:) e produtos comprados
+  const { data: contactDetail } = useContact(contactId || undefined);
+  const { data: purchases } = useContactPurchases(contactId || undefined);
   const isAiPaused = contactId
     ? (conversation?.contactAiPaused ?? false)
     : (conversation?.metadata?.ai_paused === true);
@@ -436,6 +467,80 @@ export const ContactPanel = memo(function ContactPanel({
             }
           />
         </Section>
+
+        {/* ARK (Onda 2B): de onde o lead veio e o que ja comprou */}
+        {hasLinkedContact && contactId && (
+          <Section title="Origem" defaultOpen={true}>
+            {(() => {
+              const tags = contactDetail?.tags ?? [];
+              const origemTag = tags.find(t => t.toLowerCase().startsWith('origem:'));
+              const canal = origemLabel(origemTag ? origemTag.slice(7) : contactDetail?.source);
+              const campanhas = tags.filter(t => /^(funil|edicao|campanha|lista|interesse):/i.test(t));
+              return (
+                <>
+                  <InfoRow
+                    icon={Compass}
+                    label="Canal de entrada"
+                    value={canal ?? <span className="text-slate-400">não registrado</span>}
+                  />
+                  {(contactDetail?.instagramUsername || contactDetail?.tiktokUsername) && (
+                    <InfoRow
+                      icon={User}
+                      label="Perfil"
+                      value={[
+                        contactDetail?.instagramUsername ? `@${contactDetail.instagramUsername} (Instagram)` : null,
+                        contactDetail?.tiktokUsername ? `@${contactDetail.tiktokUsername} (TikTok)` : null,
+                      ].filter(Boolean).join(' · ')}
+                    />
+                  )}
+                  <InfoRow
+                    icon={Tag}
+                    label="Campanha / funil"
+                    value={
+                      campanhas.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {campanhas.map(t => (
+                            <span key={t} className="px-1.5 py-0.5 text-[11px] rounded bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 font-mono">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )
+                    }
+                  />
+                </>
+              );
+            })()}
+          </Section>
+        )}
+
+        {hasLinkedContact && contactId && (
+          <Section title="Produtos comprados" defaultOpen={true}>
+            {purchases && purchases.length > 0 ? (
+              <ul className="space-y-2">
+                {purchases.map(p => (
+                  <li key={p.deal_id} className="flex items-start gap-3">
+                    <ShoppingBag className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-slate-900 dark:text-white truncate">{p.product || p.title}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {[
+                          p.value != null ? BRL.format(Number(p.value)) : null,
+                          p.closed_at ? format(new Date(p.closed_at), 'dd/MM/yyyy') : null,
+                          p.payment_method ? (PAYMENT_LABEL[p.payment_method] ?? p.payment_method) : null,
+                        ].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-slate-400">Nenhuma compra registrada (negócios ganhos).</p>
+            )}
+          </Section>
+        )}
 
         {/* Tags do lead — nome livre, acumulam como rastro dos funis */}
         <Section title="Tags" defaultOpen={true}>

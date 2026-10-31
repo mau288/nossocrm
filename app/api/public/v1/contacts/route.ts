@@ -172,34 +172,41 @@ export async function POST(request: Request) {
     }
   }
 
-  let lookup = sb
-    .from('contacts')
-    .select('id')
-    .eq('organization_id', auth.organizationId)
-    .is('deleted_at', null);
-
-  if (email && phone) lookup = lookup.or(`email.eq.${email},phone.eq.${phone}`);
-  else if (email) lookup = lookup.eq('email', email);
-  else if (phone) lookup = lookup.eq('phone', phone);
-
-  const existing = await lookup.maybeSingle();
-  if (existing.error) {
-    console.error('[API] Database error:', existing.error)
+  // ARK (Onda 2B): porta unica de identidade — telefone E.164 com 9o digito, dedup por telefone
+  // (com/sem 9), e-mail e @, tags somam, origem:<canal> sempre; integracao e porta de CONTATO
+  // (quem so tinha disparo vira contato). Demais campos entram no update logo abaixo.
+  const sourceLabel = normalizeText(parsed.data.source);
+  const { data: identity, error: identityError } = await sb.rpc('upsert_contact_identity', {
+    p_organization_id: auth.organizationId,
+    p_name: name,
+    p_phone: phone,
+    p_email: email,
+    p_source: sourceLabel ?? 'api',
+    p_channel: (sourceLabel ?? 'api').toLowerCase(),
+    p_lifecycle: 'contato',
+    p_avatar: normalizeText(parsed.data.avatar),
+  });
+  if (identityError) {
+    console.error('[API] Database error:', identityError)
     return NextResponse.json({ error: 'Internal server error', code: 'DB_ERROR' }, { status: 500 })
+  }
+  const ident = (identity ?? {}) as { contact_id?: string; created?: boolean };
+  if (!ident.contact_id) {
+    return NextResponse.json({ error: 'Internal server error', code: 'DB_ERROR' }, { status: 500 })
+  }
+  if (ident.created && !name) {
+    // a RPC ja criou com nome = telefone/e-mail; mantem o contrato antigo da API
+    await sb.from('contacts').delete().eq('id', ident.contact_id);
+    return NextResponse.json({ error: 'Name is required to create a new contact', code: 'VALIDATION_ERROR' }, { status: 422 });
   }
 
   const now = new Date().toISOString();
   const payload: any = {
-    organization_id: auth.organizationId,
-    email,
-    phone,
     role: normalizeText(parsed.data.role),
     company_name: companyName,
     client_company_id: clientCompanyId,
-    avatar: normalizeText(parsed.data.avatar),
     status: normalizeText(parsed.data.status),
     stage: normalizeText(parsed.data.stage),
-    source: normalizeText(parsed.data.source),
     notes: normalizeText(parsed.data.notes),
     birth_date: birthDate,
     last_interaction: lastInteraction,
@@ -207,43 +214,22 @@ export async function POST(request: Request) {
     total_value: parsed.data.total_value ?? undefined,
     updated_at: now,
   };
-
-  if (existing.data?.id) {
-    if (name) payload.name = name;
-    const { data, error } = await sb
-      .from('contacts')
-      .update(payload)
-      .eq('id', existing.data.id)
-      .select('id,name,email,phone,role,company_name,client_company_id,avatar,notes,status,stage,source,birth_date,last_interaction,last_purchase_date,total_value,created_at,updated_at')
-      .single();
-    if (error) {
-      console.error('[API] Database error:', error)
-      return NextResponse.json({ error: 'Internal server error', code: 'DB_ERROR' }, { status: 500 })
-    }
-    return NextResponse.json({ data: data, action: 'updated' });
+  if (ident.created) {
+    payload.status = payload.status ?? 'ACTIVE';
+    payload.stage = payload.stage ?? 'LEAD';
   }
-
-  if (!name) {
-    return NextResponse.json({ error: 'Name is required to create a new contact', code: 'VALIDATION_ERROR' }, { status: 422 });
-  }
-
-  const insertPayload = {
-    ...payload,
-    name,
-    created_at: now,
-    status: 'ACTIVE',
-    stage: 'LEAD',
-  };
+  for (const k of Object.keys(payload)) if (payload[k] === null || payload[k] === undefined) delete payload[k];
 
   const { data, error } = await sb
     .from('contacts')
-    .insert(insertPayload)
+    .update(payload)
+    .eq('id', ident.contact_id)
     .select('id,name,email,phone,role,company_name,client_company_id,avatar,notes,status,stage,source,birth_date,last_interaction,last_purchase_date,total_value,created_at,updated_at')
     .single();
   if (error) {
     console.error('[API] Database error:', error)
     return NextResponse.json({ error: 'Internal server error', code: 'DB_ERROR' }, { status: 500 })
   }
-  return NextResponse.json({ data, action: 'created' }, { status: 201 });
+  return NextResponse.json({ data, action: ident.created ? 'created' : 'updated' }, { status: ident.created ? 201 : 200 });
 }
 

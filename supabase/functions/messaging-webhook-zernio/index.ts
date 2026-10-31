@@ -723,27 +723,27 @@ async function ensureConversation(
     return { conversationId: existingConv.id, contactId: existingConv.contact_id, created: false };
   }
 
-  // Instagram has no phone: dedup by name+source would be unsafe, so each new
-  // DM thread creates its own contact (merge later via the dedup tools).
+  // ARK (Onda 2B): porta unica de identidade. Instagram/TikTok nao tem telefone, mas tem o @:
+  // a RPC procura por @ (instagram_username / tiktok_username) e reaproveita o contato em vez
+  // de criar um por conversa. Sem @ confiavel (conversation.started vazio), cria o placeholder.
+  // (Onda 2A) DM automatica/abordagem sem resposta nao vira contato (lifecycle 'conversa');
+  // a promocao acontece por trigger (resposta/negocio) ou pelo botao em Mensagens.
   let contactId: string | null = null;
-  const { data: newContact, error: contactCreateErr } = await supabase
-    .from("contacts")
-    .insert({
-      organization_id: channel.organization_id,
-      name: contactName,
-      source: channel.channel_type,
-      ...(params.avatar ? { avatar: params.avatar } : {}),
-      // ARK (Onda 2): DM automatica/abordagem sem resposta nao vira contato (lifecycle 'conversa');
-      // a promocao acontece por trigger (resposta/negocio) ou pelo botao em Mensagens.
-      lifecycle: "conversa",
-    })
-    .select("id")
-    .single();
+  const usernameKey = channel.channel_type === "tiktok" ? "p_tiktok_username" : "p_instagram_username";
+  const { data: identity, error: contactCreateErr } = await supabase.rpc("upsert_contact_identity", {
+    p_organization_id: channel.organization_id,
+    p_name: hasRealName ? contactName : null,
+    [usernameKey]: trustedUsername,
+    p_source: channel.channel_type,
+    p_channel: channel.channel_type,
+    p_lifecycle: "conversa",
+    p_avatar: params.avatar,
+  });
 
   if (contactCreateErr) {
-    console.error("[Zernio] Error auto-creating contact:", contactCreateErr);
-  } else {
-    contactId = newContact.id;
+    console.error("[Zernio] upsert_contact_identity:", contactCreateErr);
+  } else if (identity && typeof identity === "object" && (identity as { contact_id?: string }).contact_id) {
+    contactId = (identity as { contact_id: string }).contact_id;
   }
 
   const { data: newConv, error: convCreateErr } = await supabase

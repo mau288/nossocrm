@@ -15,7 +15,7 @@
 import { supabase } from './client';
 import { Contact, CRMCompany, OrganizationId, PaginationState, PaginatedResponse, ContactsServerFilters } from '@/types';
 import { sanitizeUUID, sanitizeText, sanitizeNumber } from './utils';
-import { normalizePhoneE164 } from '@/lib/phone';
+import { normalizePhoneE164, normalizeSocialUsername } from '@/lib/phone';
 
 async function getCurrentOrganizationId(): Promise<string | null> {
   if (!supabase) return null;
@@ -85,6 +85,10 @@ export interface DbContact {
   tags: string[] | null;
   /** ARK (Onda 2): 'conversa' | 'contato'. */
   lifecycle?: string | null;
+  /** ARK (Onda 2B): @ do Instagram (sem arroba, minusculo). */
+  instagram_username?: string | null;
+  /** ARK (Onda 2B): @ do TikTok (sem arroba, minusculo). */
+  tiktok_username?: string | null;
 }
 
 /**
@@ -140,6 +144,8 @@ const transformContact = (db: DbContact): Contact => ({
   aiPaused: db.ai_paused ?? false,
   tags: db.tags ?? [],
   lifecycle: (db.lifecycle === 'conversa' ? 'conversa' : 'contato'),
+  instagramUsername: db.instagram_username || undefined,
+  tiktokUsername: db.tiktok_username || undefined,
 });
 
 /**
@@ -188,6 +194,8 @@ const transformContactToDb = (contact: Partial<Contact>): Partial<DbContact> => 
   if (contact.totalValue !== undefined) db.total_value = contact.totalValue;
   if (contact.aiPaused !== undefined) db.ai_paused = contact.aiPaused;
   if (contact.tags !== undefined) db.tags = contact.tags;
+  if (contact.instagramUsername !== undefined) db.instagram_username = normalizeSocialUsername(contact.instagramUsername);
+  if (contact.tiktokUsername !== undefined) db.tiktok_username = normalizeSocialUsername(contact.tiktokUsername);
 
   return db;
 };
@@ -462,29 +470,50 @@ export const contactsService = {
       if (!supabase) {
         return { data: null, error: new Error('Supabase não configurado') };
       }
-      const phoneE164 = normalizePhoneE164(contact.phone);
       const organizationId = await getCurrentOrganizationId();
-      const insertData = {
-        name: contact.name,
-        email: sanitizeText(contact.email),
-        phone: sanitizeText(phoneE164),
+      if (!organizationId) {
+        return { data: null, error: new Error('Organização não encontrada') };
+      }
+
+      // ARK (Onda 2B): porta unica de identidade. Normaliza o telefone (E.164 + 9o digito),
+      // reaproveita contato existente (telefone com/sem 9, e-mail, @) em vez de duplicar, soma
+      // tags e carimba origem:manual. Os demais campos do formulario entram no update abaixo.
+      const { data: identity, error: identityError } = await supabase.rpc('upsert_contact_identity', {
+        p_organization_id: organizationId,
+        p_name: contact.name,
+        p_phone: sanitizeText(contact.phone),
+        p_email: sanitizeText(contact.email),
+        p_instagram_username: sanitizeText(contact.instagramUsername),
+        p_tiktok_username: sanitizeText(contact.tiktokUsername),
+        p_source: sanitizeText(contact.source),
+        p_channel: 'manual',
+        p_tags: contact.tags && contact.tags.length > 0 ? contact.tags : null,
+        p_lifecycle: 'contato',
+        p_avatar: sanitizeText(contact.avatar),
+      });
+      if (identityError) return { data: null, error: identityError };
+      const contactId = (identity as { contact_id?: string } | null)?.contact_id;
+      if (!contactId) return { data: null, error: new Error('Contato não criado') };
+
+      const extras: Record<string, unknown> = {
         role: sanitizeText(contact.role),
         client_company_id: sanitizeUUID(contact.clientCompanyId || contact.companyId),
-        avatar: sanitizeText(contact.avatar),
         notes: sanitizeText(contact.notes),
         status: contact.status || 'ACTIVE',
         stage: contact.stage || 'LEAD',
-        source: sanitizeText(contact.source),
         birth_date: sanitizeText(contact.birthDate),
         last_interaction: sanitizeText(contact.lastInteraction),
         last_purchase_date: sanitizeText(contact.lastPurchaseDate),
-        total_value: sanitizeNumber(contact.totalValue, 0),
-        ...(organizationId ? { organization_id: organizationId } : {}),
+        updated_at: new Date().toISOString(),
       };
+      if (contact.totalValue !== undefined) extras.total_value = sanitizeNumber(contact.totalValue, 0);
+      // nao apaga o que o contato ja tinha quando o formulario veio vazio
+      for (const k of Object.keys(extras)) if (extras[k] === null || extras[k] === undefined) delete extras[k];
 
       const { data, error } = await supabase
         .from('contacts')
-        .insert(insertData)
+        .update(extras)
+        .eq('id', contactId)
         .select()
         .single();
 

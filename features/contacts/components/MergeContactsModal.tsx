@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { X, GitMerge, Phone, Mail, Check } from 'lucide-react';
+import { X, GitMerge, Phone, Mail, Check, AtSign } from 'lucide-react';
 import { FocusTrap } from '@/lib/a11y';
 import { cn } from '@/lib/utils';
 import type { Contact } from '@/types';
@@ -120,13 +120,23 @@ export const MergeContactsModal: React.FC<MergeContactsModalProps> = ({
                   >
                     {/* Group header */}
                     <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/10">
-                      {group.match_type === 'phone' ? (
+                      {group.match_type === 'phone' || group.match_type === 'phone9' ? (
                         <Phone className="w-3.5 h-3.5 text-slate-400" />
-                      ) : (
+                      ) : group.match_type === 'email' ? (
                         <Mail className="w-3.5 h-3.5 text-slate-400" />
+                      ) : (
+                        <AtSign className="w-3.5 h-3.5 text-slate-400" />
                       )}
                       <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                        {group.match_type === 'phone' ? 'Telefone' : 'E-mail'}:{' '}
+                        {group.match_type === 'phone'
+                          ? 'Telefone'
+                          : group.match_type === 'phone9'
+                            ? 'Telefone (com/sem 9º dígito)'
+                            : group.match_type === 'email'
+                              ? 'E-mail'
+                              : group.match_type === 'instagram'
+                                ? '@ do Instagram'
+                                : '@ do TikTok'}:{' '}
                         <span className="font-mono">{group.match_value}</span>
                       </span>
                       <span className="text-xs text-slate-400 ml-auto">

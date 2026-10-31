@@ -16,7 +16,8 @@ import { supabase } from '@/lib/supabase';
 // =============================================================================
 
 export interface DuplicateGroup {
-  match_type: 'phone' | 'email';
+  /** ARK (Onda 2B): phone9 = mesmo numero com/sem o 9o digito; instagram/tiktok = mesmo @. */
+  match_type: 'phone' | 'phone9' | 'email' | 'instagram' | 'tiktok';
   match_value: string;
   contact_ids: string[];
   contact_names: string[];

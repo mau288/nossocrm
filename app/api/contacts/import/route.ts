@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { detectCsvDelimiter, parseCsv, type CsvDelimiter } from '@/lib/utils/csv';
-import { normalizePhoneE164 } from '@/lib/phone';
+import { normalizePhoneBr } from '@/lib/phone';
 
 export const maxDuration = 120;
 
@@ -334,7 +334,13 @@ export async function POST(req: Request) {
     const insertBatch: Array<{ rowNumber: number; payload: Record<string, unknown> }> = [];
     const flushInsert = async () => {
       if (!insertBatch.length) return;
-      const payloads = insertBatch.map(i => i.payload);
+      // ARK (Onda 2B): quem nasce por importacao leva source 'importacao' e a tag origem:importacao
+      // (a nao ser que a lista ja traga uma origem:<campanha> propria).
+      const payloads = insertBatch.map(i => {
+        const tags = Array.isArray(i.payload.tags) ? (i.payload.tags as string[]) : [];
+        const hasOrigem = tags.some(t => t.toLowerCase().startsWith('origem:'));
+        return { ...i.payload, source: 'importacao', tags: hasOrigem ? tags : [...tags, 'origem:importacao'] };
+      });
       const { data: insertedRows, error: insertError } = await supabase
         .from('contacts')
         .insert(payloads)
@@ -356,7 +362,8 @@ export async function POST(req: Request) {
     for (const p of parsed) {
       const rowNumber = p.rowNumber;
       const email = (p.data.email || '').trim().toLowerCase();
-      const phoneE164 = p.data.phone ? normalizePhoneE164(p.data.phone) : undefined;
+      // ARK (Onda 2B): E.164 com a regra do 9o digito (mesma regra do banco: normalize_phone_e164)
+      const phoneE164 = p.data.phone ? normalizePhoneBr(p.data.phone) : undefined;
       const companyName = (p.data.company || '').trim();
       const companyId = companyName ? companyIdByName.get(normalizeHeader(companyName)) : undefined;
 

@@ -825,46 +825,28 @@ async function handleMessagesUpsert(
       }
     }
   } else {
-    // Find or create contact
-    const { data: existingContact, error: contactLookupErr } = await supabase
-      .from("contacts")
-      .select("id")
-      .eq("organization_id", channel.organization_id)
-      .eq("phone", phone)
-      .is("deleted_at", null)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
+    // ARK (Onda 2B): porta unica de identidade. Procura por telefone (canonico OU variante
+    // sem o 9o digito), completa nome/origem e so cria se nao existir. Registro criado por
+    // mensagem nasce 'conversa' (Onda 2A); vira 'contato' quando a pessoa responde a uma
+    // abordagem, ganha negocio ou alguem promove (promote_contact).
+    const { data: identity, error: identityErr } = await supabase.rpc("upsert_contact_identity", {
+      p_organization_id: channel.organization_id,
+      p_name: pushName || null,
+      p_phone: phone,
+      p_source: "whatsapp",
+      p_channel: "whatsapp",
+      p_lifecycle: "conversa",
+    });
 
-    if (contactLookupErr) {
-      console.error("[Evolution] Error looking up existing contact:", contactLookupErr);
-      throw contactLookupErr;
-    }
-
-    if (existingContact) {
-      contactId = existingContact.id;
-    } else {
-      const contactName = pushName || phone;
-
-      const { data: newContact, error: contactCreateErr } = await supabase
-        .from("contacts")
-        .insert({
-          organization_id: channel.organization_id,
-          name: contactName,
-          phone: phone,
-          source: "whatsapp",
-          // ARK (Onda 2): registro criado por mensagem nasce como 'conversa'; vira 'contato'
-          // quando a pessoa responde a uma abordagem, ganha negocio ou alguem promove (promote_contact).
-          lifecycle: "conversa",
-        })
-        .select("id")
-        .single();
-
-      if (contactCreateErr) {
-        console.error("[Evolution] Error auto-creating contact:", contactCreateErr);
-      } else {
-        contactId = newContact.id;
+    if (identityErr) {
+      console.error("[Evolution] upsert_contact_identity:", identityErr);
+    } else if (identity && typeof identity === "object" && (identity as { contact_id?: string }).contact_id) {
+      const ident = identity as { contact_id: string; created: boolean; matched_by: string | null };
+      contactId = ident.contact_id;
+      if (ident.created) {
         console.log(`[Evolution] Auto-created contact: ${contactId} for phone ${phone}`);
+      } else if (ident.matched_by && ident.matched_by !== "phone") {
+        console.log(`[Evolution] Contact ${contactId} reused by ${ident.matched_by}`);
       }
     }
 

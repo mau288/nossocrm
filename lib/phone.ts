@@ -60,3 +60,52 @@ export function toWhatsAppPhone(input?: string | null, opts?: { defaultCountry?:
   if (!e164) return '';
   return e164.replace(/^\+/, '');
 }
+
+/**
+ * ARK (Onda 2B): regra do 9º dígito. Espelho de `normalize_phone_e164()` no banco.
+ *
+ * - '+551187654321' (celular BR com 8 dígitos) -> '+5511987654321'
+ * - '11 98765-4321' | '011987654321' | '5511987654321' -> '+5511987654321'
+ * - fixo BR (1º dígito local 2-5) fica com 8 dígitos
+ * - fora do Brasil: só limpa (mantém + e dígitos)
+ * Retorna '' quando vazio.
+ */
+export function normalizePhoneBr(input?: string | null): string {
+  const raw = (input ?? '').trim();
+  if (!raw) return '';
+  let digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  const intl = raw.startsWith('+') || digits.startsWith('00');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (!intl) {
+    if (digits.startsWith('0') && (digits.length === 11 || digits.length === 12)) digits = digits.slice(1);
+    if (digits.length === 10 || digits.length === 11) digits = '55' + digits;
+  }
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    const local = digits.slice(4);
+    if (local.length === 8 && local[0] >= '6' && local[0] <= '9') {
+      digits = digits.slice(0, 4) + '9' + local;
+    }
+  }
+  return '+' + digits;
+}
+
+/** Variantes para PROCURAR um telefone no banco antigo (canônico, sem 9, sem '+'). */
+export function phoneLookupVariants(input?: string | null): string[] {
+  const canon = normalizePhoneBr(input);
+  if (!canon) return [];
+  const out = [canon, canon.slice(1)];
+  if (canon.startsWith('+55') && canon.length === 14 && canon[5] === '9') {
+    const no9 = canon.slice(0, 5) + canon.slice(6);
+    out.push(no9, no9.slice(1));
+  }
+  const raw = (input ?? '').trim();
+  if (raw && !out.includes(raw)) out.push(raw);
+  return out;
+}
+
+/** '@Fulano' -> 'fulano'; vazio -> null. Espelho de `normalize_social_username()`. */
+export function normalizeSocialUsername(input?: string | null): string | null {
+  const v = (input ?? '').trim().replace(/^@+/, '').toLowerCase();
+  return v || null;
+}
