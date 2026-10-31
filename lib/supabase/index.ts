@@ -6,4 +6,5 @@ export { activitiesService } from './activities';
 export { productsService } from './products';
 export { gatewaysService, financeiroSettingsService } from './gateways';
 export { boardGoalHistoryService } from './boardGoals';
+export { sellerGoalsService } from './sellerGoals';
 export { settingsService, lifecycleStagesService } from './settings';

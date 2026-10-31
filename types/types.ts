@@ -366,6 +366,50 @@ export interface BoardGoal {
   endDate?: string;
 }
 
+// ARK Onda 3 (3.3): meta por vendedor
+export interface SellerGoalInput {
+  userId: string;
+  /** null/undefined = todos os funis */
+  boardId?: string | null;
+  kpi?: string;
+  goalType: 'currency' | 'number';
+  targetValue: number;
+  /** YYYY-MM-DD */
+  startDate: string;
+  /** YYYY-MM-DD */
+  endDate: string;
+  description?: string;
+}
+
+export type SellerGoalStatus = 'andamento' | 'risco' | 'batida' | 'nao-batida';
+
+/** Linha devolvida pela RPC get_seller_goals_progress (meta + progresso + ritmo + status). */
+export interface SellerGoalProgress {
+  id: string;
+  userId: string;
+  userName: string;
+  boardId: string | null;
+  boardName: string | null;
+  kpi: string;
+  goalType: 'currency' | 'number';
+  targetValue: number;
+  startDate: string;
+  endDate: string;
+  description: string | null;
+  archivedAt: string | null;
+  wonCount: number;
+  wonValue: number;
+  lostCount: number;
+  /** no tipo da meta (R$ ou quantidade) */
+  value: number;
+  pct: number;
+  daysTotal: number;
+  daysElapsed: number;
+  /** % do periodo ja decorrido = ritmo esperado */
+  expectedPct: number;
+  status: SellerGoalStatus;
+}
+
 // ARK #53: meta que já foi trocada, com o resultado final
 export interface BoardGoalHistoryEntry {
   id: string;
