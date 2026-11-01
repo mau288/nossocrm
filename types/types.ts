@@ -434,6 +434,8 @@ export interface GestaoAlertSettings {
   webhookErrorThreshold: number;
   cooldownMinutes: number;
   goalsHour: number;
+  /** horas (BRT) em que o resumo "aguardando resposta" sai; null/vazio = modo cooldown em horario comercial */
+  waitingHours: number[] | null;
   updatedAt?: string;
 }
 
