@@ -5,6 +5,8 @@
  *
  * Configura quem recebe (nome + telefone), por qual chip da Evolution, quais gatilhos
  * (aguardando resposta · erro de webhook · meta em risco), limites e horario comercial.
+ * O resumo de "aguardando resposta" sai em horarios fixos (ex.: 9 e 20 h) ou a cada X min
+ * em horario comercial (modo antigo).
  * A verificacao roda no banco/edge function a cada 10 min; aqui so a configuracao,
  * o botao de teste e o historico dos ultimos envios.
  */
@@ -60,14 +62,29 @@ export const AlertSettingsSection: React.FC = () => {
 
   const [form, setForm] = useState<Form>({ ...DEFAULT_ALERT_SETTINGS });
   const [sujo, setSujo] = useState(false);
+  // Modo do resumo "aguardando resposta": horarios fixos (texto "9, 20") ou cooldown.
+  const [modoFixo, setModoFixo] = useState(false);
+  const [horariosTxt, setHorariosTxt] = useState('9, 20');
 
   useEffect(() => {
     if (saved) {
       const { organizationId: _o, updatedAt: _u, ...rest } = saved;
       setForm(rest);
+      const fixo = !!saved.waitingHours && saved.waitingHours.length > 0;
+      setModoFixo(fixo);
+      if (fixo) setHorariosTxt(saved.waitingHours!.join(', '));
       setSujo(false);
     }
   }, [saved]);
+
+  /** "9, 20" -> [9, 20] (0-23, sem repetir, em ordem). */
+  const parseHorarios = (txt: string): number[] =>
+    [...new Set(
+      txt
+        .split(/[,;\s]+/)
+        .map((t) => Number(t.replace(/h$/i, '')))
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 23)
+    )].sort((a, b) => a - b);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -88,9 +105,13 @@ export const AlertSettingsSection: React.FC = () => {
     if (form.enabled && !form.channelId) return toast?.('Escolha o chip que envia os alertas.', 'error');
     if (form.enabled && form.recipients.filter((r) => r.phone.replace(/\D/g, '').length >= 10).length === 0)
       return toast?.('Informe ao menos um telefone com DDI+DDD (ex.: 5511999999999).', 'error');
-    if (form.hoursEnd <= form.hoursStart) return toast?.('Horário comercial inválido.', 'error');
+    const horarios = modoFixo ? parseHorarios(horariosTxt) : [];
+    if (modoFixo && horarios.length === 0) return toast?.('Informe ao menos um horário entre 0 e 23 (ex.: 9, 20).', 'error');
+    if (!modoFixo && form.hoursEnd <= form.hoursStart) return toast?.('Horário comercial inválido.', 'error');
     try {
-      await salvar.mutateAsync(form);
+      await salvar.mutateAsync({ ...form, waitingHours: modoFixo ? horarios : null });
+      setForm((f) => ({ ...f, waitingHours: modoFixo ? horarios : null }));
+      if (modoFixo) setHorariosTxt(horarios.join(', '));
       setSujo(false);
       toast?.('Alertas salvos.', 'success');
     } catch (e) {
@@ -140,7 +161,7 @@ export const AlertSettingsSection: React.FC = () => {
         </div>
       </div>
       <p className="text-xs text-slate-500 mb-3">
-        A verificação roda a cada 10 min. Resumo de conversas paradas no máximo 1 por hora em horário comercial; erro de webhook quando passar do limite; meta em risco 1 vez por dia.
+        A verificação roda a cada 10 min. Resumo de conversas paradas nos horários fixos escolhidos (ou a cada X min em horário comercial); erro de webhook quando passar do limite; meta em risco 1 vez por dia.
       </p>
 
       {isLoading ? (
@@ -201,7 +222,7 @@ export const AlertSettingsSection: React.FC = () => {
               on={form.alertWaiting}
               onChange={(v) => set('alertWaiting', v)}
               label="Conversa aguardando resposta"
-              hint="resumo por canal, em horário comercial"
+              hint="resumo por canal + lista de quem está pendente (nome/telefone)"
             />
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
               <span>parada há mais de</span>
@@ -210,13 +231,49 @@ export const AlertSettingsSection: React.FC = () => {
               <input type="number" min={1} max={720} value={form.maxHours} onChange={(e) => set('maxHours', Number(e.target.value))} className={numCls} />
               <span>h</span>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-              <span>horário comercial</span>
-              <input type="number" min={0} max={23} value={form.hoursStart} onChange={(e) => set('hoursStart', Number(e.target.value))} className={numCls} />
-              <span>h às</span>
-              <input type="number" min={1} max={24} value={form.hoursEnd} onChange={(e) => set('hoursEnd', Number(e.target.value))} className={numCls} />
-              <span>h</span>
-              <label className="flex items-center gap-1 ml-2">
+            <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+              <label className="flex flex-wrap items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="modo-aguardando"
+                  checked={modoFixo}
+                  onChange={() => {
+                    setModoFixo(true);
+                    setSujo(true);
+                  }}
+                />
+                <span>em horários fixos:</span>
+                <input
+                  type="text"
+                  value={horariosTxt}
+                  disabled={!modoFixo}
+                  onChange={(e) => {
+                    setHorariosTxt(e.target.value);
+                    setSujo(true);
+                  }}
+                  placeholder="9, 20"
+                  title="Horas do dia (0-23) separadas por vírgula"
+                  className={`${numCls} w-24 text-left disabled:opacity-50`}
+                />
+                <span>h (1 envio por horário)</span>
+              </label>
+              <label className="flex flex-wrap items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="modo-aguardando"
+                  checked={!modoFixo}
+                  onChange={() => {
+                    setModoFixo(false);
+                    setSujo(true);
+                  }}
+                />
+                <span>a cada {form.cooldownMinutes} min, das</span>
+                <input type="number" min={0} max={23} value={form.hoursStart} disabled={modoFixo} onChange={(e) => set('hoursStart', Number(e.target.value))} className={`${numCls} disabled:opacity-50`} />
+                <span>h às</span>
+                <input type="number" min={1} max={24} value={form.hoursEnd} disabled={modoFixo} onChange={(e) => set('hoursEnd', Number(e.target.value))} className={`${numCls} disabled:opacity-50`} />
+                <span>h</span>
+              </label>
+              <label className="flex items-center gap-1 ml-5">
                 <input type="checkbox" checked={form.weekdaysOnly} onChange={(e) => set('weekdaysOnly', e.target.checked)} /> só dias úteis
               </label>
             </div>

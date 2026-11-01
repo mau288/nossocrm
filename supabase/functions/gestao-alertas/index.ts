@@ -5,8 +5,11 @@
 // (mesmo segredo do scheduled-messages-dispatch). Para cada organizacao com
 // gestao_alert_settings.enabled:
 //   1. waiting  — conversas abertas cuja ultima mensagem e do lead ha mais de
-//                 sla_minutes (e menos de max_hours), em horario comercial, no maximo
-//                 1 resumo por cooldown_minutes.
+//                 sla_minutes (e menos de max_hours). Dois modos:
+//                   waiting_hours preenchido -> 1 resumo por hora listada (BRT), por dia
+//                     (ex.: {9,20}; pedido de 01/11/2026), so dias uteis se marcado;
+//                   waiting_hours vazio      -> em horario comercial, 1 por cooldown_minutes.
+//                 A mensagem lista as pendentes com nome/telefone (mais antigas primeiro).
 //   2. webhook  — >= webhook_error_threshold erros em messaging_webhook_events nos
 //                 ultimos 10 min (qualquer hora), 1 por cooldown.
 //   3. goals    — metas de funil (boards.goal_*) e de vendedor (seller_goals) abaixo
@@ -46,7 +49,11 @@ type Settings = {
   webhook_error_threshold: number;
   cooldown_minutes: number;
   goals_hour: number;
+  waiting_hours: number[] | null;
 };
+
+/** Quantas conversas pendentes aparecem nominalmente na mensagem. */
+const MAX_LISTA = 15;
 
 const PAINEL_URL = "https://crm.arkacademy.com.br/reports?view=gestao";
 
@@ -165,10 +172,22 @@ function cooldownPassed(last: { created_at: string } | null, minutes: number): b
 type ConvRow = {
   id: string;
   last_message_at: string;
+  external_contact_id: string | null;
   external_contact_name: string | null;
-  contact: { name: string | null } | { name: string | null }[] | null;
+  contact: { name: string | null; phone: string | null } | { name: string | null; phone: string | null }[] | null;
   channel: { name: string; channel_type: string } | { name: string; channel_type: string }[] | null;
 };
+
+const soNumero = (s: string) => /^[+\d\s()-]{6,}$/.test(s.trim());
+
+/** "Nome (+5511...)" — nome real do contato ou do WhatsApp; telefone quando houver. */
+function quemE(r: ConvRow): string {
+  const c = Array.isArray(r.contact) ? r.contact[0] : r.contact;
+  const nome = [c?.name, r.external_contact_name].find((n) => n && n.trim() && !soNumero(n)) ?? null;
+  const fone = c?.phone || (r.external_contact_id?.startsWith("+") ? r.external_contact_id : null);
+  if (nome && fone) return `${nome} (${fone})`;
+  return nome ?? fone ?? r.external_contact_name ?? "sem nome";
+}
 
 async function alertWaiting(supabase: Supa, s: Settings): Promise<string | null> {
   const now = Date.now();
@@ -176,7 +195,7 @@ async function alertWaiting(supabase: Supa, s: Settings): Promise<string | null>
   const minAt = new Date(now - s.max_hours * 3_600_000).toISOString();
   const { data, error } = await supabase
     .from("messaging_conversations")
-    .select("id, last_message_at, external_contact_name, contact:contacts!contact_id(name), channel:messaging_channels!channel_id(name, channel_type)")
+    .select("id, last_message_at, external_contact_id, external_contact_name, contact:contacts!contact_id(name, phone), channel:messaging_channels!channel_id(name, channel_type)")
     .eq("organization_id", s.organization_id)
     .eq("status", "open")
     .eq("last_message_direction", "inbound")
@@ -201,20 +220,26 @@ async function alertWaiting(supabase: Supa, s: Settings): Promise<string | null>
     cur.oldest = Math.max(cur.oldest, min);
     porCanal.set(nome, cur);
   }
-  const first = rows[0];
-  const c0 = Array.isArray(first.contact) ? first.contact[0] : first.contact;
-  const ch0 = Array.isArray(first.channel) ? first.channel[0] : first.channel;
-  const oldestMin = Math.round((now - new Date(first.last_message_at).getTime()) / 60_000);
-
   const linhas = [...porCanal.entries()]
     .sort((a, b) => b[1].count - a[1].count)
     .map(([nome, v]) => `• ${nome}: ${v.count} (mais antiga ${fmtMin(v.oldest)})`);
+
+  // Quem esta pendente (mais antigas primeiro), com nome/telefone para achar no CRM.
+  const pendentes = rows.slice(0, MAX_LISTA).map((r, i) => {
+    const ch = Array.isArray(r.channel) ? r.channel[0] : r.channel;
+    const min = Math.round((now - new Date(r.last_message_at).getTime()) / 60_000);
+    return `${i + 1}. ${quemE(r)} · ${ch?.name ?? "canal"} · ${fmtMin(min)}`;
+  });
+  const resto = rows.length - pendentes.length;
 
   return [
     `⏳ *CRM — aguardando resposta* (há mais de ${s.sla_minutes} min)`,
     `Total: ${rows.length} conversa${rows.length === 1 ? "" : "s"}`,
     ...linhas,
-    `Mais antiga: ${c0?.name || first.external_contact_name || "sem nome"} (${ch0?.name ?? "canal"}) — ${fmtMin(oldestMin)}`,
+    "",
+    `*Pendentes (mais antigas primeiro):*`,
+    ...pendentes,
+    ...(resto > 0 ? [`… e mais ${resto}`] : []),
     PAINEL_URL,
   ].join("\n");
 }
@@ -385,13 +410,40 @@ async function processOrg(supabase: Supa, s: Settings, test: boolean): Promise<R
   const inHours = brt.hour >= s.hours_start && brt.hour < s.hours_end && !(s.weekdays_only && isWeekend);
 
   // 1. aguardando resposta
-  if (s.alert_waiting && inHours) {
+  const horasFixas = (Array.isArray(s.waiting_hours) ? s.waiting_hours : []).filter((h) => Number.isInteger(h) && h >= 0 && h < 24);
+  if (!s.alert_waiting) out.waiting = "desligado";
+  else if (horasFixas.length > 0) {
+    // Modo horarios fixos: 1 envio por hora listada, por dia (fingerprint data:hora).
+    if (s.weekdays_only && isWeekend) out.waiting = "fim de semana";
+    else if (!horasFixas.includes(brt.hour)) out.waiting = "fora da hora";
+    else {
+      const fp = `${brt.date}:${String(brt.hour).padStart(2, "0")}`;
+      const last = await lastLog(supabase, s.organization_id, "waiting");
+      if (last?.fingerprint === fp) out.waiting = "ja enviado nesta hora";
+      else {
+        const text = await alertWaiting(supabase, s);
+        if (text) out.waiting = await sendToAll(supabase, s.organization_id, "waiting", fp, credentials, recipients, text);
+        else {
+          await supabase.from("gestao_alert_log").insert({
+            organization_id: s.organization_id,
+            alert_type: "waiting",
+            fingerprint: fp,
+            message: `Verificação das ${brt.hour}h: nenhuma conversa aguardando resposta.`,
+            recipients: [],
+            sent_ok: true,
+          });
+          out.waiting = "fila limpa";
+        }
+      }
+    }
+  } else if (inHours) {
+    // Modo cooldown (antigo): em horario comercial, 1 por cooldown_minutes.
     const last = await lastLog(supabase, s.organization_id, "waiting");
     if (cooldownPassed(last, s.cooldown_minutes)) {
       const text = await alertWaiting(supabase, s);
       out.waiting = text ? await sendToAll(supabase, s.organization_id, "waiting", brt.date, credentials, recipients, text) : "fila limpa";
     } else out.waiting = "cooldown";
-  } else out.waiting = s.alert_waiting ? "fora do horario" : "desligado";
+  } else out.waiting = "fora do horario";
 
   // 2. erro de webhook
   if (s.alert_webhook) {

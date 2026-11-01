@@ -33,6 +33,7 @@ export const DEFAULT_ALERT_SETTINGS: Omit<GestaoAlertSettings, 'organizationId'>
   webhookErrorThreshold: 3,
   cooldownMinutes: 60,
   goalsHour: 9,
+  waitingHours: null,
 };
 
 type DbSettings = {
@@ -51,6 +52,7 @@ type DbSettings = {
   webhook_error_threshold: number;
   cooldown_minutes: number;
   goals_hour: number;
+  waiting_hours: number[] | null;
   updated_at: string;
 };
 
@@ -71,6 +73,7 @@ function transform(db: DbSettings): GestaoAlertSettings {
     webhookErrorThreshold: db.webhook_error_threshold,
     cooldownMinutes: db.cooldown_minutes,
     goalsHour: db.goals_hour,
+    waitingHours: Array.isArray(db.waiting_hours) && db.waiting_hours.length > 0 ? db.waiting_hours : null,
     updatedAt: db.updated_at,
   };
 }
@@ -116,6 +119,7 @@ export const gestaoAlertsService = {
           webhook_error_threshold: input.webhookErrorThreshold,
           cooldown_minutes: input.cooldownMinutes,
           goals_hour: input.goalsHour,
+          waiting_hours: input.waitingHours && input.waitingHours.length > 0 ? input.waitingHours : null,
           updated_by: user?.id ?? null,
         },
         { onConflict: 'organization_id' }
