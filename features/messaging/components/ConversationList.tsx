@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
-import { Search, Filter, Inbox, CheckCircle, X, RefreshCw } from 'lucide-react';
+import { Search, Filter, Inbox, CheckCircle, Clock, X, RefreshCw } from 'lucide-react';
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { queryKeys } from '@/lib/query';
@@ -61,7 +61,8 @@ export const ConversationList = memo(function ConversationList({
   businessUnitId,
   getPresence,
 }: ConversationListProps) {
-  const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all'>('open');
+  // ARK: 'awaiting' = aba "Nao respondidas" (aberta + ultima mensagem do lead)
+  const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all' | 'awaiting'>('open');
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState<ChannelType | 'all'>('all');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
@@ -85,7 +86,8 @@ export const ConversationList = memo(function ConversationList({
   }, [queryClient]);
 
   const filters: ConversationFilters = useMemo(() => ({
-    status: statusFilter,
+    status: statusFilter === 'awaiting' ? 'open' : statusFilter,
+    awaitingReply: statusFilter === 'awaiting' || undefined,
     businessUnitId,
     search: searchQuery || undefined,
     channelType: channelFilter !== 'all' ? channelFilter : undefined,
@@ -134,6 +136,7 @@ export const ConversationList = memo(function ConversationList({
 
   const statusTabs = [
     { id: 'open' as const, label: 'Abertas', icon: Inbox },
+    { id: 'awaiting' as const, label: 'Não respondidas', icon: Clock },
     { id: 'resolved' as const, label: 'Resolvidas', icon: CheckCircle },
   ];
 
@@ -352,7 +355,9 @@ export const ConversationList = memo(function ConversationList({
             <p className="text-slate-500 dark:text-slate-400">
               {statusFilter === 'open'
                 ? 'Nenhuma conversa aberta'
-                : 'Nenhuma conversa resolvida'}
+                : statusFilter === 'awaiting'
+                  ? 'Nenhuma conversa aguardando resposta'
+                  : 'Nenhuma conversa resolvida'}
             </p>
           </div>
         ) : (

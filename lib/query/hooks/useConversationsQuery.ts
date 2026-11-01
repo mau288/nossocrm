@@ -197,6 +197,10 @@ export function useConversations(filters?: ConversationFilters) {
       if (filters?.hasUnread) {
         query = query.gt('unread_count', 0);
       }
+      // ARK: "Nao respondidas" = a ultima mensagem e do lead (mesma regra do painel de Gestao e do alerta)
+      if (filters?.awaitingReply) {
+        query = query.eq('last_message_direction', 'inbound');
+      }
       if (filters?.search) {
         const safe = sanitizePostgrestValue(filters.search);
         if (safe) {
@@ -295,16 +299,19 @@ export function updateConversationLists(
 /**
  * Le os filtros embutidos na queryKey de uma lista (ver queryKeys.messagingConversations.filtered).
  */
-function filtersFromKey(queryKey: QueryKey): { status: string | null; hasUnread: boolean | null; isPlainList: boolean } {
+function filtersFromKey(queryKey: QueryKey): { status: string | null; hasUnread: boolean | null; awaitingReply: boolean; isPlainList: boolean } {
   const i = queryKey.indexOf('filtered');
-  if (i === -1) return { status: null, hasUnread: null, isPlainList: false };
-  const [status, channelId, channelType, businessUnitId, assignedUserId, hasUnread, search, tags] =
+  if (i === -1) return { status: null, hasUnread: null, awaitingReply: false, isPlainList: false };
+  const [status, channelId, channelType, businessUnitId, assignedUserId, hasUnread, search, tags, _sortBy, _sortOrder, awaitingReply] =
     queryKey.slice(i + 1) as Array<string | boolean | null>;
   const isPlainList = !channelId && !channelType && !assignedUserId && !search && !tags;
   void businessUnitId;
+  void _sortBy;
+  void _sortOrder;
   return {
     status: typeof status === 'string' ? status : null,
     hasUnread: typeof hasUnread === 'boolean' ? hasUnread : null,
+    awaitingReply: awaitingReply === true,
     isPlainList,
   };
 }
@@ -312,6 +319,8 @@ function filtersFromKey(queryKey: QueryKey): { status: string | null; hasUnread:
 function matchesListFilters(conv: ConversationView, f: ReturnType<typeof filtersFromKey>): boolean {
   if (f.status && f.status !== 'all' && conv.status !== f.status) return false;
   if (f.hasUnread && !(conv.unreadCount > 0)) return false;
+  // ARK: na aba "Nao respondidas", responder tira a conversa da lista na hora
+  if (f.awaitingReply && conv.lastMessageDirection !== 'inbound') return false;
   return true;
 }
 
