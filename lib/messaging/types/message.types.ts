@@ -446,6 +446,8 @@ export interface ConversationFilters {
   search?: string;
   /** ARK: tags do CONTATO (qualquer uma delas) */
   tags?: string[];
+  /** ARK: so conversas cuja ultima mensagem e do lead (aba "Nao respondidas"); combinar com status 'open' */
+  awaitingReply?: boolean;
   sortBy?: 'lastMessageAt' | 'createdAt' | 'unreadCount';
   sortOrder?: 'asc' | 'desc';
 }

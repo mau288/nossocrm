@@ -93,6 +93,8 @@ export const queryKeys = {
             filters?.tags?.length ? [...filters.tags].sort().join(',') : null,
             filters?.sortBy ?? null,
             filters?.sortOrder ?? null,
+            // ARK: aba "Nao respondidas" (ultima mensagem do lead)
+            filters?.awaitingReply ?? null,
           ] as const,
         /** Conversations for a specific channel */
         byChannel: (channelId: string) => [...base.all, 'byChannel', channelId] as const,
