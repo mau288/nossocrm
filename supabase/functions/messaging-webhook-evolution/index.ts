@@ -484,7 +484,11 @@ function generateStableEventId(
 
   if (eventNorm === "connection.update") {
     const state = (payload as EvolutionConnectionUpdatePayload).data?.state ?? "unknown";
-    return `evo_conn_${channelId}_${state}`;
+    // ARK (02/11/2026): o id era so canal+estado, e o indice UNIQUE (channel_id, external_event_id)
+    // fazia TODO 'open'/'close' depois do primeiro virar "duplicado" — o CRM nunca via o chip
+    // reconectar (Raul preso em "connected" desde 17/09; Julio Oficial reconectou e nada chegou).
+    const when = (payload as { date_time?: string }).date_time ?? new Date().toISOString();
+    return `evo_conn_${channelId}_${state}_${when}`;
   }
 
   // Fallback for unhandled events
@@ -592,11 +596,15 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceKey);
 
   // Fetch channel by ID (not by instance name — avoids attacker-controlled lookup)
+  // ARK (02/11/2026): sem filtro de status. Antes so 'connected'/'active' passavam: depois de um
+  // 'close' (status -> disconnected) ou do "Conectar" da tela (status -> connecting), TODO webhook
+  // do chip era descartado com "Canal nao encontrado" — inclusive o connection.update 'open' que
+  // devolveria o status. O chip reconectava na Evolution e o CRM ficava cego para sempre.
   const { data: channel, error: channelErr } = await supabase
     .from("messaging_channels")
     .select("id, organization_id, business_unit_id, external_identifier, status, credentials")
     .eq("id", channelId)
-    .in("status", ["connected", "active"])
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (channelErr) {
@@ -625,6 +633,18 @@ Deno.serve(async (req) => {
 
   // Normalize event name: Evolution v2 sends UPPERCASE, some versions use lowercase
   const eventNorm = payload.event?.toLowerCase().replace(/_/g, ".");
+
+  // ARK (02/11/2026): self-heal do status. Se chegou mensagem/status por um canal que o CRM
+  // acha 'disconnected'/'connecting', o chip esta vivo — marca 'connected' sem esperar o
+  // connection.update (que a Evolution so manda na hora da reconexao).
+  if (eventNorm !== "connection.update" && channel.status !== "connected" && channel.status !== "active") {
+    const { error: healErr } = await supabase
+      .from("messaging_channels")
+      .update({ status: "connected" })
+      .eq("id", channel.id);
+    if (healErr) console.error("[Evolution] self-heal do status falhou:", healErr.message);
+    else console.log(`[Evolution] canal ${channel.id} estava '${channel.status}', recebeu ${eventNorm}: marcado connected`);
+  }
 
   // =========================================================================
   // AUDIT LOGGING & DEDUPLICATION
