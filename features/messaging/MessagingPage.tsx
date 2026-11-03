@@ -312,7 +312,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   }, [router]);
 
   return (
-    <div className="h-full flex pb-[calc(var(--app-bottom-nav-height,0px)+var(--app-safe-area-bottom,0px))]">
+    <div className="h-full flex overflow-hidden pb-[calc(var(--app-bottom-nav-height,0px)+var(--app-safe-area-bottom,0px))]">
       {/* Conversation List — ARK (03/11/2026): no celular ocupa a tela toda e some quando ha conversa aberta */}
       <div className={cn('w-full md:w-80 flex-shrink-0 min-h-0', selectedConversationId ? 'hidden md:block' : 'block')}>
         <ConversationList
@@ -337,7 +337,14 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <div className="relative">
+              {/* ARK (03/11/2026): no celular/tablet, tocar na foto ou no nome abre o painel do contato */}
+              <button
+                type="button"
+                onClick={() => setShowContactPanel(true)}
+                className="flex-1 min-w-0 flex items-center gap-2 md:gap-3 text-left rounded-lg lg:cursor-default lg:pointer-events-none"
+                title="Dados do contato"
+              >
+              <div className="relative flex-shrink-0">
                 {sanitizeUrl(selectedConversation.externalContactAvatar) ? (
                   <img
                     src={sanitizeUrl(selectedConversation.externalContactAvatar)}
@@ -357,22 +364,24 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
                 <h2 className="font-semibold text-slate-900 dark:text-white truncate">
                   {selectedConversation.contactName || selectedConversation.externalContactName || 'Contato desconhecido'}
                 </h2>
-                <div className="flex items-center gap-2">
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                <div className="flex items-center gap-2 min-w-0">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                     {selectedConversation.channelName}
                   </p>
                   <WindowExpiryBadge
                     windowExpiresAt={selectedConversation.windowExpiresAt}
                     variant="inline"
                   />
+                  <span className="lg:hidden text-[10px] text-primary-600 dark:text-primary-400 whitespace-nowrap">toque p/ dados</span>
                 </div>
               </div>
-              <div className="flex items-center gap-1 md:gap-2">
+              </button>
+              <div className="flex items-center gap-0.5 md:gap-2 flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowContactPanel(true)}
-                  className="lg:hidden p-2 text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-colors"
-                  title="Dados do contato"
+                  className="lg:hidden p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-colors"
+                  title="Dados do contato (funil, follow-up, tags)"
                   aria-label="Dados do contato"
                 >
                   <Info className="w-5 h-5" />
@@ -385,7 +394,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
                   type="button"
                   onClick={() => setShowSearch((v) => !v)}
                   className={cn(
-                    'p-2 rounded-lg transition-colors',
+                    'hidden md:block p-2 rounded-lg transition-colors',
                     showSearch
                       ? 'text-primary-500 bg-primary-50 dark:bg-primary-500/10'
                       : 'text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
@@ -408,7 +417,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
                   <button
                     type="button"
                     onClick={() => setIsLinkModalOpen(true)}
-                    className="p-2 text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-colors"
+                    className="hidden md:block p-2 text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-colors"
                     title="Vincular contato"
                   >
                     <LinkIcon className="w-5 h-5" />
