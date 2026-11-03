@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { MessageSquare, User, CheckCircle, MoreVertical, LinkIcon, Trash2, RotateCcw, Search } from 'lucide-react';
+import { MessageSquare, User, CheckCircle, MoreVertical, LinkIcon, Trash2, RotateCcw, Search, ArrowLeft, Info, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { sanitizeUrl } from '@/lib/utils/sanitize';
@@ -159,6 +159,8 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   const [isHandoffModalOpen, setIsHandoffModalOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  // ARK (03/11/2026): no celular/tablet o painel do contato abre como gaveta por cima da conversa
+  const [showContactPanel, setShowContactPanel] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<import('@/lib/messaging/types').MessagingMessage | null>(null);
 
   // Subscribe to realtime updates
@@ -227,7 +229,16 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   const handleSelectConversation = useCallback((id: string) => {
     setSelectedConversationId(id);
     setShowSearch(false);
+    setShowContactPanel(false);
     router.push(`/messaging?id=${id}`, { scroll: false });
+  }, [router]);
+
+  // ARK (03/11/2026): botao "voltar" do celular — sai da conversa e mostra a lista de novo
+  const handleBackToList = useCallback(() => {
+    setSelectedConversationId(undefined);
+    setShowSearch(false);
+    setShowContactPanel(false);
+    router.push('/messaging', { scroll: false });
   }, [router]);
 
   // Link conversation to contact
@@ -301,9 +312,9 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   }, [router]);
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex">
-      {/* Conversation List */}
-      <div className="w-80 flex-shrink-0">
+    <div className="h-full flex pb-[calc(var(--app-bottom-nav-height,0px)+var(--app-safe-area-bottom,0px))]">
+      {/* Conversation List — ARK (03/11/2026): no celular ocupa a tela toda e some quando ha conversa aberta */}
+      <div className={cn('w-full md:w-80 flex-shrink-0 min-h-0', selectedConversationId ? 'hidden md:block' : 'block')}>
         <ConversationList
           selectedId={selectedConversationId}
           onSelect={handleSelectConversation}
@@ -311,12 +322,21 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
         />
       </div>
 
-      {/* Message Thread */}
-      <div className="flex-1 flex flex-col bg-slate-50 dark:bg-slate-900/50">
+      {/* Message Thread — ARK (03/11/2026): no celular so aparece com conversa aberta */}
+      <div className={cn('flex-1 min-w-0 flex-col bg-slate-50 dark:bg-slate-900/50', selectedConversationId ? 'flex' : 'hidden md:flex')}>
         {selectedConversation ? (
           <>
             {/* Header */}
-            <div className="h-16 px-4 flex items-center gap-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-white/10">
+            <div className="h-16 px-2 md:px-4 flex items-center gap-2 md:gap-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-white/10">
+              <button
+                type="button"
+                onClick={handleBackToList}
+                className="md:hidden p-2 -ml-1 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white rounded-lg"
+                title="Voltar para a lista"
+                aria-label="Voltar para a lista"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
               <div className="relative">
                 {sanitizeUrl(selectedConversation.externalContactAvatar) ? (
                   <img
@@ -347,7 +367,16 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
                   />
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 md:gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowContactPanel(true)}
+                  className="lg:hidden p-2 text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-colors"
+                  title="Dados do contato"
+                  aria-label="Dados do contato"
+                >
+                  <Info className="w-5 h-5" />
+                </button>
                 <AssignmentDropdown
                   conversationId={selectedConversation.id}
                   assignedUserId={selectedConversation.assignedUserId}
@@ -456,8 +485,8 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
         )}
       </div>
 
-      {/* Contact Panel */}
-      <div className="w-80 border-l border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 flex-shrink-0">
+      {/* Contact Panel — coluna fixa so em tela larga (lg+) */}
+      <div className="hidden lg:block w-80 border-l border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 flex-shrink-0">
         <ContactPanel
           conversation={selectedConversation}
           isLoading={isConversationLoading && !!selectedConversationId}
@@ -470,6 +499,39 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
           onPullToWhatsApp={() => setIsHandoffModalOpen(true)}
         />
       </div>
+
+      {/* ARK (03/11/2026): celular/tablet — painel do contato como gaveta pela direita (fecha antes de abrir modal, que fica em z-50) */}
+      {showContactPanel && selectedConversation && (
+        <div className="fixed inset-0 z-[60] lg:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowContactPanel(false)} aria-hidden="true" />
+          <div className="absolute right-0 top-0 h-full w-full max-w-sm bg-white dark:bg-slate-900 shadow-2xl flex flex-col">
+            <div className="h-12 px-3 flex items-center justify-between border-b border-slate-200 dark:border-white/10">
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Dados do contato</span>
+              <button
+                type="button"
+                onClick={() => setShowContactPanel(false)}
+                className="p-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white rounded-lg"
+                aria-label="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <ContactPanel
+                conversation={selectedConversation}
+                isLoading={isConversationLoading && !!selectedConversationId}
+                onLinkContact={() => { setShowContactPanel(false); setIsLinkModalOpen(true); }}
+                onPromoteContact={handlePromoteContact}
+                isPromoting={isPromoting}
+                onViewContact={handleViewContact}
+                onViewDeals={handleViewDeals}
+                onSendToFunnel={() => { setShowContactPanel(false); setIsFunnelModalOpen(true); }}
+                onPullToWhatsApp={() => { setShowContactPanel(false); setIsHandoffModalOpen(true); }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Puxar pro WhatsApp: handoff do Instagram com disparo imediato */}
       {selectedConversation?.contactId && (

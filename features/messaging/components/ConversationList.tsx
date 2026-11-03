@@ -204,6 +204,7 @@ export const ConversationList = memo(function ConversationList({
         </div>
 
         {/* Status tabs */}
+        {/* ARK (03/11/2026): 3 abas na coluna de 320 px — cada uma ocupa 1/3, icone so no celular (coluna cheia) */}
         <div className="flex gap-1 mt-3">
           {statusTabs.map((tab) => {
             const isActive = statusFilter === tab.id;
@@ -212,14 +213,15 @@ export const ConversationList = memo(function ConversationList({
                 key={tab.id}
                 type="button"
                 onClick={() => setStatusFilter(tab.id)}
+                title={tab.label}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors',
+                  'flex flex-1 items-center justify-center gap-1.5 px-2 py-1.5 text-sm md:text-xs font-medium rounded-lg transition-colors whitespace-nowrap',
                   isActive
                     ? 'bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300'
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'
                 )}
               >
-                <tab.icon className="w-4 h-4" />
+                <tab.icon className="w-4 h-4 md:hidden" />
                 {tab.label}
               </button>
             );
