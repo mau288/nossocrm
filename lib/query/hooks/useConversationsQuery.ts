@@ -204,9 +204,21 @@ export function useConversations(filters?: ConversationFilters) {
       if (filters?.search) {
         const safe = sanitizePostgrestValue(filters.search);
         if (safe) {
-          query = query.or(
-            `external_contact_name.ilike.%${safe}%,last_message_preview.ilike.%${safe}%`
-          );
+          // ARK (06/11/2026): busca tambem pelo NUMERO. Se o texto so tem digitos/espaco/+/-/. e pelo
+          // menos 4 digitos, procura os digitos dentro do telefone da conversa (external_contact_id =
+          // +5516981403491) — vale com ou sem 55, com mascara, ou so o final. Com 10+ digitos tambem
+          // casa pelos ultimos 8 (numero salvo com/sem o nono digito).
+          const digits = safe.replace(/\D/g, '');
+          const looksPhone = digits.length >= 4 && /^[\d\s+\-.]+$/.test(safe);
+          const parts = [
+            `external_contact_name.ilike.%${safe}%`,
+            `last_message_preview.ilike.%${safe}%`,
+          ];
+          if (looksPhone) {
+            parts.push(`external_contact_id.ilike.%${digits}%`);
+            if (digits.length >= 10) parts.push(`external_contact_id.ilike.%${digits.slice(-8)}`);
+          }
+          query = query.or(parts.join(','));
         }
       }
 
