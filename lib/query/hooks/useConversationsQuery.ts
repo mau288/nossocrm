@@ -21,7 +21,6 @@ import {
 } from '@tanstack/react-query';
 import { queryKeys } from '../index';
 import { supabase } from '@/lib/supabase';
-import { isRealtimeConnected } from '@/lib/realtime/status';
 import { sanitizePostgrestValue } from '@/lib/utils/sanitize';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
@@ -236,10 +235,11 @@ export function useConversations(filters?: ConversationFilters) {
       return { rows, nextOffset: full ? offset + CONVERSATIONS_PAGE_SIZE : null };
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
-    staleTime: 30 * 1000, // 30 seconds
-    // Rede de seguranca: o realtime e o caminho principal. Com o canal de pe, o polling
-    // e so um "acerto" a cada 60 s; se o WebSocket cair, volta para 20 s.
-    refetchInterval: () => (isRealtimeConnected() ? 60 * 1000 : 20 * 1000),
+    staleTime: 10 * 1000,
+    // ARK (06/11/2026): a lista se reconfere a cada 15 s, sempre (antes 60 s com o realtime "de pe";
+    // o WebSocket fica assinado e mudo com frequencia — ver useMessagesQuery). O realtime continua
+    // sendo o caminho principal; isto e a rede de seguranca.
+    refetchInterval: 15 * 1000,
     refetchOnWindowFocus: true,
     enabled: !authLoading && !!user && !!profile?.organization_id,
     placeholderData: keepPreviousData,
