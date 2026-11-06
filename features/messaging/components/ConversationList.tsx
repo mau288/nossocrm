@@ -57,6 +57,12 @@ const CHANNEL_OPTIONS: { id: ChannelType | 'all'; label: string }[] = [
   { id: 'sms', label: 'SMS' },
 ];
 
+// ARK (06/11/2026): filtros da lista lembrados no navegador (canal, nao lidas, tags e aba) ate o
+// usuario limpar. Antes viviam so na memoria da tela: recarregar a pagina ou sair de Mensagens e
+// voltar zerava o filtro de WhatsApp e a lista voltava a misturar Instagram/ManyChat.
+const FILTERS_STORAGE_KEY = 'ark.messaging.filters.v1';
+type SavedFilters = { status?: unknown; channel?: unknown; unreadOnly?: unknown; tags?: unknown };
+
 export const ConversationList = memo(function ConversationList({
   selectedId,
   onSelect,
@@ -82,6 +88,38 @@ export const ConversationList = memo(function ConversationList({
     setTagFilter((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   }, []);
   const [showFilters, setShowFilters] = useState(false);
+
+  // Filtros lembrados: salvar so depois de carregar (o efeito de salvar vem ANTES do de carregar de
+  // proposito — na montagem ele roda com o ref ainda false e nao sobrescreve o que esta salvo).
+  const filtersLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!filtersLoadedRef.current) return;
+    try {
+      window.localStorage.setItem(
+        FILTERS_STORAGE_KEY,
+        JSON.stringify({ status: statusFilter, channel: channelFilter, unreadOnly: showUnreadOnly, tags: tagFilter })
+      );
+    } catch {
+      /* armazenamento indisponivel: segue sem lembrar */
+    }
+  }, [statusFilter, channelFilter, showUnreadOnly, tagFilter]);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as SavedFilters;
+        if (saved.status === 'open' || saved.status === 'resolved' || saved.status === 'awaiting') setStatusFilter(saved.status);
+        if (typeof saved.channel === 'string' && CHANNEL_OPTIONS.some((c) => c.id === saved.channel)) {
+          setChannelFilter(saved.channel as ChannelType | 'all');
+        }
+        if (typeof saved.unreadOnly === 'boolean') setShowUnreadOnly(saved.unreadOnly);
+        if (Array.isArray(saved.tags)) setTagFilter(saved.tags.filter((t): t is string => typeof t === 'string'));
+      }
+    } catch {
+      /* valor invalido: ignora */
+    }
+    filtersLoadedRef.current = true;
+  }, []);
 
   // Botao "Atualizar": recarrega lista, thread aberta e contador da barra lateral.
   // useIsFetching gira o icone enquanto qualquer query de conversas estiver em voo.

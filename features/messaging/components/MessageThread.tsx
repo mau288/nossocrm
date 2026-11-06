@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { format, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Loader2, MessageSquare } from 'lucide-react';
+import { Loader2, MessageSquare, ArrowDown } from 'lucide-react';
 import { PresenceIndicator } from './PresenceIndicator';
 import { MessageBubble } from './MessageBubble';
 import { useMessagesInfinite } from '@/lib/query/hooks/useMessagesQuery';
@@ -60,8 +60,13 @@ export function MessageThread({ conversationId, presenceStatus, onReply }: Messa
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const prevMessagesLengthRef = useRef(0);
   const isLoadingOlderRef = useRef(false);
+  // ARK (06/11/2026): a rolagem acompanha a ULTIMA mensagem (id), nao a quantidade na tela. Com 50+
+  // mensagens carregadas a nova entrava, a mais antiga saia, a contagem nao mudava e a tela ficava
+  // parada — a mensagem estava la, abaixo do que se via.
+  const lastMessageIdRef = useRef<string | null>(null);
+  const lastConversationRef = useRef<string | null>(null);
+  const [hasNewBelow, setHasNewBelow] = useState(false);
 
   // Flatten pages into single message array (chronological order).
   // Filter out reaction messages — they are displayed as pills on the target
@@ -74,17 +79,49 @@ export function MessageThread({ conversationId, presenceStatus, onReply }: Messa
       !HIDDEN_WHATSAPP_TYPES.has(String(m.metadata?.message_type ?? '')),
   );
 
-  // Scroll to bottom on new messages (not when loading older)
+  const lastMessage = messages.length ? messages[messages.length - 1] : null;
+  const lastMessageId = lastMessage?.id ?? null;
+  const lastMessageDirection = lastMessage?.direction ?? null;
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+    setHasNewBelow(false);
+  }, []);
+
+  // Mensagem nova: desce a tela se a gente mandou ou se o leitor esta perto do fim; se ele estiver
+  // lendo mensagens antigas la em cima, mostra o aviso "Nova mensagem" em vez de puxar a tela.
+  // Troca de conversa (ou primeira carga): vai direto para o fim.
   useEffect(() => {
-    if (messages.length > prevMessagesLengthRef.current && !isLoadingOlderRef.current) {
-      scrollRef.current?.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: prevMessagesLengthRef.current === 0 ? 'auto' : 'smooth',
-      });
+    const el = scrollRef.current;
+    if (!lastMessageId || !el) return;
+    const conversationChanged = lastConversationRef.current !== conversationId;
+    if (conversationChanged || lastMessageIdRef.current === null) {
+      lastConversationRef.current = conversationId;
+      lastMessageIdRef.current = lastMessageId;
+      setHasNewBelow(false);
+      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+      requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, behavior: 'auto' }));
+      return;
     }
+    if (lastMessageIdRef.current === lastMessageId) return;
+    lastMessageIdRef.current = lastMessageId;
     isLoadingOlderRef.current = false;
-    prevMessagesLengthRef.current = messages.length;
-  }, [messages.length]);
+    // O DOM ja tem a bolha nova quando o efeito roda; 400 px cobre a bolha + a folga de leitura.
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (lastMessageDirection === 'outbound' || distanceFromBottom < 400) {
+      scrollToBottom('smooth');
+    } else {
+      setHasNewBelow(true);
+    }
+  }, [lastMessageId, lastMessageDirection, conversationId, scrollToBottom]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !hasNewBelow) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) setHasNewBelow(false);
+  }, [hasNewBelow]);
 
   // IntersectionObserver on sentinel to trigger loading older messages
   const handleSentinel = useCallback(
@@ -176,6 +213,7 @@ export function MessageThread({ conversationId, presenceStatus, onReply }: Messa
       aria-live="polite"
       aria-label="Mensagens da conversa"
       className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50 dark:bg-slate-900/50"
+      onScroll={handleScroll}
     >
       {/* Sentinel for loading older messages */}
       <div ref={sentinelRef} className="h-1" />
@@ -206,6 +244,20 @@ export function MessageThread({ conversationId, presenceStatus, onReply }: Messa
       {presenceStatus && presenceStatus !== 'offline' && presenceStatus !== 'online' && (
         <div className="flex items-center gap-2 px-2 py-1.5">
           <PresenceIndicator status={presenceStatus} showLabel size="md" />
+        </div>
+      )}
+
+      {/* ARK (06/11/2026): aviso de mensagem nova abaixo do que o leitor esta vendo */}
+      {hasNewBelow && (
+        <div className="sticky bottom-2 flex justify-center pointer-events-none">
+          <button
+            type="button"
+            onClick={() => scrollToBottom('smooth')}
+            className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-full shadow-lg bg-primary-500 text-black hover:bg-primary-400 transition-colors"
+          >
+            <ArrowDown className="w-4 h-4" />
+            Nova mensagem
+          </button>
         </div>
       )}
     </div>

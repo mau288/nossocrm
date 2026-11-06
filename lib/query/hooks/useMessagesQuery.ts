@@ -14,7 +14,6 @@ import {
   useInfiniteQuery,
 } from '@tanstack/react-query';
 import { queryKeys } from '../index';
-import { isRealtimeConnected } from '@/lib/realtime/status';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import type {
@@ -95,11 +94,13 @@ export function useMessagesInfinite(conversationId: string | undefined) {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: !authLoading && !!user && !!conversationId,
-    staleTime: 30 * 1000,
-    // ARK (Onda 1 / 1.5): com o realtime de pe o acerto e a cada 30 s; se o WebSocket cair,
-    // volta para 12 s. (maxPages nao serve aqui: o TanStack descarta a PRIMEIRA pagina, que
-    // e a das mensagens mais novas.)
-    refetchInterval: () => (isRealtimeConnected() ? 30 * 1000 : 12 * 1000),
+    staleTime: 4 * 1000,
+    // ARK (06/11/2026): a conversa ABERTA se reconfere a cada 5 s, sempre. Antes era 30 s com o
+    // realtime "de pe" — mas o WebSocket fica assinado e mudo (aba em segundo plano, PC voltando do
+    // descanso, celular trocando de rede) e o Mauricio respondia sem ver a mensagem que ja tinha
+    // chegado. E uma consulta pequena (so a conversa na tela). (maxPages nao serve aqui: o TanStack
+    // descarta a PRIMEIRA pagina, que e a das mensagens mais novas.)
+    refetchInterval: 5 * 1000,
     refetchOnWindowFocus: true,
   });
 }
