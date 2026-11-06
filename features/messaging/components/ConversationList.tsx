@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
-import { Search, Filter, Inbox, CheckCircle, Clock, X, RefreshCw } from 'lucide-react';
+import { Search, Filter, Inbox, CheckCircle, Clock, X, RefreshCw, Phone } from 'lucide-react';
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { queryKeys } from '@/lib/query';
@@ -44,6 +44,8 @@ interface ConversationListProps {
   onSelect: (conversationId: string) => void;
   businessUnitId?: string;
   getPresence?: (contactId: string) => 'online' | 'typing' | 'recording' | 'offline';
+  /** ARK (06/11/2026): abre a conversa de um numero (ou a janela de nova conversa se nao existir) */
+  onOpenByPhone?: (phone: string) => void;
 }
 
 const CHANNEL_OPTIONS: { id: ChannelType | 'all'; label: string }[] = [
@@ -60,10 +62,17 @@ export const ConversationList = memo(function ConversationList({
   onSelect,
   businessUnitId,
   getPresence,
+  onOpenByPhone,
 }: ConversationListProps) {
   // ARK: 'awaiting' = aba "Nao respondidas" (aberta + ultima mensagem do lead)
   const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all' | 'awaiting'>('open');
   const [searchQuery, setSearchQuery] = useState('');
+  // ARK (06/11/2026): "Abrir por numero"
+  const [showOpenByPhone, setShowOpenByPhone] = useState(false);
+  const [phoneInput, setPhoneInput] = useState('');
+  const phoneInputDigits = phoneInput.replace(/\D/g, '');
+  const searchDigits = searchQuery.replace(/\D/g, '');
+  const searchLooksPhone = searchDigits.length >= 10 && /^[\d\s()+\-.]+$/.test(searchQuery.trim());
   const [channelFilter, setChannelFilter] = useState<ChannelType | 'all'>('all');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   // ARK: filtro por tag do contato (qualquer uma das marcadas)
@@ -149,6 +158,23 @@ export const ConversationList = memo(function ConversationList({
             Conversas
           </h2>
           <div className="flex items-center gap-1">
+          {onOpenByPhone && (
+            <button
+              type="button"
+              onClick={() => setShowOpenByPhone((v) => !v)}
+              className={cn(
+                'p-2 rounded-lg transition-colors',
+                showOpenByPhone
+                  ? 'bg-primary-100 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400'
+                  : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-600 dark:hover:text-white'
+              )}
+              title="Abrir conversa por número"
+              aria-label="Abrir conversa por número"
+              aria-expanded={showOpenByPhone}
+            >
+              <Phone className="w-4 h-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleRefresh}
@@ -182,6 +208,37 @@ export const ConversationList = memo(function ConversationList({
           </div>
         </div>
 
+        {/* ARK (06/11/2026): abrir conversa digitando o numero */}
+        {onOpenByPhone && showOpenByPhone && (
+          <form
+            className="flex gap-2 mb-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (phoneInputDigits.length < 10) return;
+              onOpenByPhone(phoneInput);
+              setPhoneInput('');
+              setShowOpenByPhone(false);
+            }}
+          >
+            <input
+              type="tel"
+              inputMode="tel"
+              autoFocus
+              placeholder="Número com DDD"
+              value={phoneInput}
+              onChange={(e) => setPhoneInput(e.target.value)}
+              className="flex-1 min-w-0 px-3 py-2 text-sm bg-slate-100 dark:bg-white/5 border border-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-slate-900 dark:text-white placeholder-slate-400"
+            />
+            <button
+              type="submit"
+              disabled={phoneInputDigits.length < 10}
+              className="px-3 py-2 text-sm font-medium rounded-lg bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 hover:bg-primary-200 dark:hover:bg-primary-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Abrir
+            </button>
+          </form>
+        )}
+
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -202,6 +259,18 @@ export const ConversationList = memo(function ConversationList({
             </button>
           )}
         </div>
+
+        {/* ARK (06/11/2026): a busca e um numero completo -> atalho para abrir a conversa dele em qualquer aba */}
+        {onOpenByPhone && searchLooksPhone && (
+          <button
+            type="button"
+            onClick={() => onOpenByPhone(searchQuery)}
+            className="mt-2 w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 hover:bg-primary-200 dark:hover:bg-primary-500/30 transition-colors text-left"
+          >
+            <Phone className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">Abrir conversa com {searchQuery.trim()}</span>
+          </button>
+        )}
 
         {/* Status tabs */}
         {/* ARK (03/11/2026): 3 abas na coluna de 320 px — cada uma ocupa 1/3, icone so no celular (coluna cheia) */}

@@ -76,6 +76,38 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
     router.replace(`/messaging?id=${id}`, { scroll: false });
   }, [router]);
 
+  // ARK (06/11/2026): abrir conversa pelo numero digitado (botao "Abrir por numero" e atalho da busca).
+  // Aceita com/sem 55 e com mascara; casa pelos ultimos 8 digitos + DDD (numero salvo com/sem o nono
+  // digito). Existe conversa (qualquer chip) -> abre a mais recente, aberta primeiro. Nao existe ->
+  // janela de nova conversa com o telefone preenchido.
+  const openByPhone = useCallback(async (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length < 10) return;
+    const full = digits.length >= 12 && digits.startsWith('55') ? digits : digits.length <= 11 ? `55${digits}` : digits;
+    const phone = `+${full}`;
+    const ddd = full.startsWith('55') ? full.slice(2, 4) : '';
+    const { data } = await supabase
+      .from('messaging_conversations')
+      .select('id, external_contact_id')
+      .ilike('external_contact_id', `%${full.slice(-8)}`)
+      .order('status', { ascending: true })          // 'open' vem antes de 'resolved'
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(20);
+    const rows = (data ?? []) as { id: string; external_contact_id: string | null }[];
+    const hit =
+      rows.find((r) => r.external_contact_id === phone) ??
+      rows.find((r) => {
+        const d = (r.external_contact_id ?? '').replace(/\D/g, '');
+        return !ddd || (d.startsWith('55') && d.slice(2, 4) === ddd);
+      });
+    if (hit) {
+      openConversation(hit.id);
+      return;
+    }
+    setNewConvPhone(phone);
+    setIsNewConvModalOpen(true);
+  }, [openConversation]);
+
   useEffect(() => {
     if (!wantsNewConversation || handledNewConvRef.current || !profile?.organization_id) return;
     handledNewConvRef.current = true;
@@ -319,6 +351,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
           selectedId={selectedConversationId}
           onSelect={handleSelectConversation}
           getPresence={getPresence}
+          onOpenByPhone={openByPhone}
         />
       </div>
 
