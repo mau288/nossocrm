@@ -85,12 +85,14 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
   }
 
   const handleSave = () => {
-    // ARK #53: trocar a meta (KPI ou alvo diferentes) guarda a anterior com o resultado
-    // que ela tinha neste momento. Mexer so em descricao/datas nao arquiva.
+    // ARK #53 / #68 (09/11/2026): a meta anterior vai para o historico quando o NOME (KPI) muda —
+    // ai e outra meta. Ajustar alvo, datas ou descricao da MESMA meta nao arquiva (antes o alvo
+    // tambem arquivava: 200 -> 135 na Black 26 criou uma "meta encerrada" que nunca existiu).
     const anterior = board.goal;
     const nova = editedBoard.goal;
     const tinhaMeta = Boolean(anterior && (anterior.kpi || anterior.targetValue));
-    const metaTrocou = tinhaMeta && (!nova || anterior!.kpi !== nova.kpi || anterior!.targetValue !== nova.targetValue);
+    const nomeDe = (g: typeof anterior) => (g?.kpi ?? '').trim().toLowerCase();
+    const metaTrocou = tinhaMeta && (!nova || nomeDe(anterior) !== nomeDe(nova));
     if (metaTrocou) {
       archiveGoal.mutate({ boardId: board.id, boardName: board.name, goal: anterior!, progress: calculatedProgress });
     }
