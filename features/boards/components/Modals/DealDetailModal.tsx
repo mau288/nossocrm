@@ -27,6 +27,7 @@ import { LossReasonModal } from '@/components/ui/LossReasonModal';
 import { useMoveDealSimple } from '@/lib/query/hooks';
 import { DEALS_VIEW_KEY } from '@/lib/query';
 import { dealsBoardViewKey } from '@/lib/query/dealsViewCache';
+import { dealsBoardViewQueryFn } from '@/lib/query/hooks/useDealsQuery';
 import { FocusTrap, useFocusReturn } from '@/lib/a11y';
 import { Activity, DealView } from '@/types';
 import { usePersistedState } from '@/hooks/usePersistedState';
@@ -70,6 +71,12 @@ interface DealDetailModalProps {
   dealId: string | null;
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * ARK (09/11/2026): board cujo cache de negocios o modal deve ler. O Kanban passa o board que
+   * esta na tela. Sem isto o modal lia `useUIState().activeBoardId`, que ninguem atualiza (sempre
+   * ''), nao achava o negocio e nao renderizava nada — o clique no card "nao fazia nada".
+   */
+  boardId?: string | null;
 }
 
 // Performance: reuse date formatter instance.
@@ -81,7 +88,7 @@ const PT_BR_DATE_FORMATTER = new Intl.DateTimeFormat('pt-BR');
  * @param {DealDetailModalProps} { dealId, isOpen, onClose } - Parâmetro `{ dealId, isOpen, onClose }`.
  * @returns {Element | null} Retorna um valor do tipo `Element | null`.
  */
-export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen, onClose }) => {
+export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen, onClose, boardId }) => {
   // Accessibility: Unique ID for ARIA labelling
   const headingId = useId();
 
@@ -102,7 +109,8 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   const removeItemFromDeal = (dealId: string, itemId: string) => removeDealItemMutation.mutateAsync({ dealId, itemId });
 
   const { data: boards = [] } = useBoards();
-  const { activeBoardId } = useUIState();
+  const { activeBoardId: storeActiveBoardId } = useUIState();
+  const activeBoardId = boardId || storeActiveBoardId;
   const activeBoard = boards.find(b => b.id === activeBoardId) || boards.find(b => b.isDefault) || boards[0] || null;
   const { data: lifecycleStages = [] } = useLifecycleStages();
 
@@ -123,10 +131,13 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
   // are immediately visible to the modal, without waiting for Realtime to update ['deals', 'list'].
   // ARK (Onda 1 / 1.3): o Kanban agora guarda os negocios POR BOARD; o modal assina o cache
   // do board ativo e, por compatibilidade, o cache geral (Visao Geral/Inbox).
+  // ARK (09/11/2026): consulta de verdade (mesma chave e mesma funcao do Kanban). Com o cache do
+  // board carregado ela so assina; se estiver vazio (negocio aberto fora do Kanban), busca.
   const { data: boardDeals = [] } = useQuery<DealView[]>({
     queryKey: dealsBoardViewKey(activeBoardId || ''),
-    queryFn: () => [] as DealView[], // never called — enabled: false
-    enabled: false,
+    queryFn: ({ signal }) => dealsBoardViewQueryFn(activeBoardId || '', { signal }),
+    enabled: !!activeBoardId && !activeBoardId.startsWith('temp-'),
+    staleTime: 2 * 60 * 1000,
   });
   const { data: allDeals = [] } = useQuery<DealView[]>({
     queryKey: DEALS_VIEW_KEY,

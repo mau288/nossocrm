@@ -390,6 +390,7 @@ export const PipelineView: React.FC<PipelineViewProps> = ({
       {selectedDealId && (
         <DealDetailModal
           dealId={selectedDealId}
+          boardId={activeBoardId}
           isOpen
           onClose={() => setSelectedDealId(null)}
         />

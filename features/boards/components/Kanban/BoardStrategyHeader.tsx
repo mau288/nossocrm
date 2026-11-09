@@ -119,14 +119,15 @@ export const BoardStrategyHeader: React.FC<BoardStrategyHeaderProps> = ({ board 
       <div className="absolute -inset-1 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-orange-500/5 rounded-xl blur-xl opacity-50 group-hover/header:opacity-100 transition-opacity duration-700"></div>
 
       <div className="relative px-5 py-3 bg-white dark:bg-[#0B1120] rounded-lg border border-slate-100 dark:border-white/5 shadow-sm transition-all duration-300 hover:shadow-md">
-        {/* Edit Button - Only visible on hover */}
+        {/* ARK (09/11/2026): lapis sempre visivel (antes so aparecia no hover, 12 px — no celular nunca) */}
         {!isEditing && (
           <button
             onClick={() => setIsEditing(true)}
-            className="absolute top-2 right-2 p-1.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-full transition-all opacity-0 group-hover/header:opacity-100"
-            title="Editar Estratégia"
+            className="absolute top-2 right-2 p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-all opacity-70 hover:opacity-100"
+            title="Editar meta, agente e gatilho"
+            aria-label="Editar meta, agente e gatilho"
           >
-            <Edit2 size={12} />
+            <Edit2 size={14} />
           </button>
         )}
 
